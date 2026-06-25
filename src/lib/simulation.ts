@@ -2,7 +2,29 @@ import { prisma } from './prisma'
 import { CommitmentStatus } from '@prisma/client'
 import { logger } from './logger'
 import { getErrorMessage } from './errors'
-import type { SimulationResult, CommitmentPrediction } from '@/types/simulation'
+import { analyzeCommitment } from './consequences'
+import { generateFutureOutlook } from './outlook'
+import { generateProfile } from './reliability'
+import { generateTimeline } from './timeline'
+import type {
+  ReliabilityProfile,
+  SimulationResult,
+  CommitmentPrediction,
+} from '@/types/simulation'
+
+export interface SimulationCommitmentInput {
+  id: string
+  userId: string
+  title: string
+  description: string | null
+  category: string
+  priority: string
+  status: CommitmentStatus
+  deadline: Date | null
+  riskScore: number
+  lastActivity: Date | null
+  updatedAt: Date
+}
 
 // ---------------------------------------------------------------------------
 // Weight constants for failure probability calculation
@@ -177,9 +199,129 @@ function computeFailureProbability(
   return { failureProbability, riskFactors }
 }
 
+function clampRiskScore(riskScore: number): number {
+  return Math.max(0, Math.min(100, riskScore))
+}
+
+function calculateReliabilityAdjustedRiskScore(
+  riskScore: number,
+  category: string,
+  reliabilityProfile: ReliabilityProfile
+): { riskScore: number; adjustment: number | null } {
+  const categoryReliability = reliabilityProfile.categoryScores[category.toLowerCase()]
+
+  if (categoryReliability === undefined) {
+    return { riskScore, adjustment: null }
+  }
+
+  let adjustment = 0
+
+  if (categoryReliability < 25) {
+    adjustment = 30
+  } else if (categoryReliability < 40) {
+    adjustment = 20
+  } else if (categoryReliability >= 90) {
+    adjustment = -15
+  } else if (categoryReliability >= 75) {
+    adjustment = -10
+  } else if (categoryReliability >= 60) {
+    adjustment = -5
+  }
+
+  return {
+    riskScore: clampRiskScore(riskScore + adjustment),
+    adjustment,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+export function runSimulationForCommitments(
+  userId: string,
+  commitments: SimulationCommitmentInput[],
+  now: Date = new Date()
+): SimulationResult {
+  const reliabilityProfile = generateProfile(commitments, now)
+  const activeCommitments = commitments.filter(
+    (c) => c.status !== CommitmentStatus.COMPLETED && c.status !== CommitmentStatus.ARCHIVED
+  )
+
+  // Build per-commitment predictions
+  const predictions: CommitmentPrediction[] = activeCommitments.map((c) => {
+    const adjustedRisk = calculateReliabilityAdjustedRiskScore(
+      c.riskScore,
+      c.category,
+      reliabilityProfile
+    )
+    const { failureProbability, riskFactors } = computeFailureProbability(
+      adjustedRisk.riskScore,
+      c.deadline,
+      c.lastActivity,
+      c.status,
+      now
+    )
+
+    if (adjustedRisk.adjustment !== null && adjustedRisk.adjustment !== 0) {
+      const direction = adjustedRisk.adjustment > 0 ? '+' : ''
+      riskFactors.push(`Reliability adjustment (${direction}${adjustedRisk.adjustment} risk)`)
+    }
+
+    const consequenceAnalysis = analyzeCommitment(
+      c.category,
+      c.priority,
+      c.title,
+      c.description
+    )
+
+    return {
+      commitmentId: c.id,
+      title: c.title,
+      category: c.category,
+        priority: c.priority,
+        status: c.status,
+        deadline: c.deadline?.toISOString() ?? null,
+        riskScore: adjustedRisk.riskScore,
+        failureProbability,
+        riskFactors,
+        consequenceAnalysis,
+    }
+  })
+
+  // Sort by failure probability descending (most likely to fail first)
+  predictions.sort((a, b) => b.failureProbability - a.failureProbability)
+
+  // Overall success probability
+  const totalActive = activeCommitments.length
+  const totalAtRisk = activeCommitments.filter(
+    (c) => c.status === CommitmentStatus.AT_RISK || c.status === CommitmentStatus.MISSED
+  ).length
+
+  let overallSuccessProbability: number
+  if (predictions.length === 0) {
+    overallSuccessProbability = 1.0
+  } else {
+    const avgFailure =
+      predictions.reduce((sum, p) => sum + p.failureProbability, 0) / predictions.length
+    overallSuccessProbability = Math.round((1 - avgFailure) * 1000) / 1000
+  }
+
+  const futureOutlook = {
+    ...generateFutureOutlook(predictions, overallSuccessProbability, reliabilityProfile),
+    timeline: generateTimeline(predictions, now),
+  }
+
+  return {
+    userId,
+    simulatedAt: now.toISOString(),
+    overallSuccessProbability,
+    totalActive,
+    totalAtRisk,
+    predictions,
+    futureOutlook,
+  }
+}
 
 /**
  * Run the Future Simulation Engine for a given user.
@@ -192,65 +334,14 @@ export async function runSimulation(userId: string): Promise<SimulationResult> {
   try {
     const now = new Date()
 
-    // Fetch all non-terminal commitments for this user
+    // Fetch all commitments so reliability can use historical completed/missed behavior.
     const commitments = await prisma.commitment.findMany({
       where: {
         userId,
-        status: {
-          notIn: [CommitmentStatus.COMPLETED, CommitmentStatus.ARCHIVED],
-        },
       },
     })
 
-    // Build per-commitment predictions
-    const predictions: CommitmentPrediction[] = commitments.map((c) => {
-      const { failureProbability, riskFactors } = computeFailureProbability(
-        c.riskScore,
-        c.deadline,
-        c.lastActivity,
-        c.status,
-        now
-      )
-
-      return {
-        commitmentId: c.id,
-        title: c.title,
-        category: c.category,
-        priority: c.priority,
-        status: c.status,
-        deadline: c.deadline?.toISOString() ?? null,
-        riskScore: c.riskScore,
-        failureProbability,
-        riskFactors,
-      }
-    })
-
-    // Sort by failure probability descending (most likely to fail first)
-    predictions.sort((a, b) => b.failureProbability - a.failureProbability)
-
-    // Overall success probability
-    const totalActive = commitments.length
-    const totalAtRisk = commitments.filter(
-      (c) => c.status === CommitmentStatus.AT_RISK || c.status === CommitmentStatus.MISSED
-    ).length
-
-    let overallSuccessProbability: number
-    if (predictions.length === 0) {
-      overallSuccessProbability = 1.0
-    } else {
-      const avgFailure =
-        predictions.reduce((sum, p) => sum + p.failureProbability, 0) / predictions.length
-      overallSuccessProbability = Math.round((1 - avgFailure) * 1000) / 1000
-    }
-
-    return {
-      userId,
-      simulatedAt: now.toISOString(),
-      overallSuccessProbability,
-      totalActive,
-      totalAtRisk,
-      predictions,
-    }
+    return runSimulationForCommitments(userId, commitments, now)
   } catch (error) {
     logger.error('SIMULATION ENGINE ERROR', { message: getErrorMessage(error) })
     throw error
