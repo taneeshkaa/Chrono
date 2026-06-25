@@ -7,6 +7,8 @@ import TodaysFocus from './TodaysFocus'
 import CommitmentsLedger from './CommitmentsLedger'
 import CalendarView from './CalendarView'
 import NotificationTray from './NotificationTray'
+import FutureOutlook from './FutureOutlook'
+import type { SimulationResult } from '@/types/simulation'
 
 type UserInfo = {
   id: string
@@ -77,6 +79,11 @@ export default function DashboardClient({ user }: Props) {
   const [emailSyncState, setEmailSyncState] = useState<SyncState>({ status: 'idle', message: null })
   const [calendarSyncState, setCalendarSyncState] = useState<SyncState>({ status: 'idle', message: null })
 
+  // Simulation Engine states
+  const [simulationData, setSimulationData] = useState<SimulationResult | null>(null)
+  const [simulationLoading, setSimulationLoading] = useState(true)
+  const [simulationError, setSimulationError] = useState(false)
+
   // New commitment modal states
   const [isNewCommitmentOpen, setIsNewCommitmentOpen] = useState(false)
   const [isAIInsightsOpen, setIsAIInsightsOpen] = useState(false)
@@ -97,7 +104,28 @@ export default function DashboardClient({ user }: Props) {
   })
   const [settingsSaveStatus, setSettingsSaveStatus] = useState<string | null>(null)
 
+  const fetchSimulation = useCallback(async () => {
+    setSimulationLoading(true)
+    setSimulationError(false)
+    try {
+      const res = await fetch('/api/simulation')
+      if (!res.ok) {
+        throw new Error('Simulation endpoint returned non-OK status')
+      }
+      const data = await res.json()
+      setSimulationData(data)
+    } catch (error) {
+      console.error('Failed to fetch simulation data:', error)
+      setSimulationError(true)
+    } finally {
+      setSimulationLoading(false)
+    }
+  }, [])
+
   const fetchData = useCallback(async () => {
+    // Fire simulation fetch in background to avoid blocking other requests
+    fetchSimulation()
+
     try {
       const [commitmentsRes, eventsRes, notificationsRes, insightsRes, connectionsRes] = await Promise.all([
         fetch('/api/commitments'),
@@ -129,7 +157,7 @@ export default function DashboardClient({ user }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [fetchSimulation])
 
   useEffect(() => {
     fetchData()
@@ -492,6 +520,16 @@ export default function DashboardClient({ user }: Props) {
           </div>
         </div>
       </div>
+
+      {/* Future Outlook Section */}
+      {tab === 'dashboard' && (
+        <FutureOutlook
+          data={simulationData}
+          loading={simulationLoading}
+          error={simulationError}
+          onRetry={fetchSimulation}
+        />
+      )}
 
       {/* Embedded AI Insights Panel */}
       {tab === 'dashboard' && (
