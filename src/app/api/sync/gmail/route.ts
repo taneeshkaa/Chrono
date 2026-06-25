@@ -2,25 +2,9 @@ import { auth } from '@/auth'
 import { extractCommitments } from '@/lib/extractor'
 import { fetchRecentEmails } from '@/lib/gmail'
 import { prisma } from '@/lib/prisma'
+import { rateLimit } from '@/lib/rate-limit'
+import { logger } from '@/lib/logger'
 import { NextResponse } from 'next/server'
-
-function sanitizeConnection(connection: {
-  id: string
-  email: string
-  connected: boolean
-  expiresAt: Date | null
-  accessToken: string | null
-  refreshToken: string | null
-}) {
-  return {
-    id: connection.id,
-    email: connection.email,
-    connected: connection.connected,
-    expiresAt: connection.expiresAt?.toISOString() ?? null,
-    hasAccessToken: Boolean(connection.accessToken),
-    hasRefreshToken: Boolean(connection.refreshToken),
-  }
-}
 
 function shouldMarkDisconnected(error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
@@ -48,7 +32,7 @@ async function getRefreshedAccessToken(connection: {
     !connection.expiresAt ||
     connection.expiresAt.getTime() - 5 * 60 * 1000 < Date.now()
 
-  console.log('TOKEN STATE:', {
+  logger.info('TOKEN STATE', {
     connectionId: connection.id,
     email: connection.email,
     connected: connection.connected,
@@ -59,7 +43,7 @@ async function getRefreshedAccessToken(connection: {
   })
 
   if (!isExpired) {
-    console.log('TOKEN REFRESH SKIPPED:', connection.email)
+    logger.info('TOKEN REFRESH SKIPPED', { email: connection.email })
     return connection.accessToken
   }
 
@@ -67,7 +51,7 @@ async function getRefreshedAccessToken(connection: {
     throw new Error('No refresh token; user must reconnect Gmail')
   }
 
-  console.log('TOKEN REFRESH ATTEMPTED:', connection.email)
+  logger.info('TOKEN REFRESH ATTEMPTED', { email: connection.email })
 
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -84,7 +68,7 @@ async function getRefreshedAccessToken(connection: {
 
   const tokens = await res.json()
 
-  console.log('TOKEN REFRESH SUCCESSFUL:', {
+  logger.info('TOKEN REFRESH SUCCESSFUL', {
     email: connection.email,
     hasNewAccessToken: Boolean(tokens.access_token),
     expiresIn: tokens.expires_in ?? null,
@@ -108,16 +92,16 @@ export async function POST() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  console.log('ENV GROQ EXISTS:', !!process.env.GROQ_API_KEY)
-  console.log(
-    'SYNC GROQ KEY PREFIX:',
-    process.env.GROQ_API_KEY?.slice(0, 12)
-  )
+  // Rate limit the request
+  const identifier = session.user.id
+  const rateLimitResult = await rateLimit('sync-gmail', identifier)
+  
+  if (!rateLimitResult.allowed) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+  }
 
-  console.log('SYNC USER:', {
-    id: session.user.id,
-    email: session.user.email,
-  })
+  logger.info('SYNC START', {
+    userId: session.user.id })
 
   const gmailConnections = await prisma.connection.findMany({
     where: {
@@ -127,24 +111,16 @@ export async function POST() {
   })
   const connections = gmailConnections.filter((connection) => connection.connected)
 
-  console.log('CONNECTED GMAILS:', connections.length)
-  console.log('ALL GMAIL CONNECTIONS:', gmailConnections.map(sanitizeConnection))
-  console.log('CONNECTED GMAIL DETAILS:', connections.map(sanitizeConnection))
+  logger.info('CONNECTED GMAILS', { count: connections.length })
 
   if (connections.length === 0) {
-    console.log('SYNC STOPPED: no connected Gmail accounts')
+    logger.warn('SYNC STOPPED: no connected Gmail accounts')
 
     return NextResponse.json(
       {
         success: false,
         error: 'No connected Gmail accounts found. Reconnect Gmail from the Connections page.',
         commitmentsFound: 0,
-        debug: {
-          connectionsProcessed: 0,
-          emailsProcessed: 0,
-          errors: [],
-          gmailAccounts: gmailConnections.map(sanitizeConnection),
-        },
       },
       { status: 400 },
     )
@@ -173,17 +149,19 @@ export async function POST() {
       duplicatesSkipped += summary.duplicatesSkipped
       extractionErrors.push(...summary.errors)
 
-      console.log('CONNECTION SYNC SUMMARY:', {
+      logger.info('CONNECTION SYNC SUMMARY', {
         connectionId: connection.id,
         email: connection.email,
         emailsProcessed: emails.length,
         emailsSkipped: summary.emailsSkipped,
         commitmentsInserted: summary.commitmentsExtracted,
         duplicatesSkipped: summary.duplicatesSkipped,
-        errors: summary.errors,
+        errorsCount: summary.errors.length,
       })
     } catch (err) {
-      console.error(`Failed to sync connection ${connection.id}:`, err)
+      logger.error(`Failed to sync connection ${connection.id}`, {
+        error: err instanceof Error ? err.message : String(err),
+      })
       syncErrors.push({
         connectionId: connection.id,
         email: connection.email,
@@ -191,7 +169,7 @@ export async function POST() {
       })
 
       if (shouldMarkDisconnected(err)) {
-        console.log('MARKING GMAIL DISCONNECTED:', {
+        logger.warn('MARKING GMAIL DISCONNECTED', {
           connectionId: connection.id,
           email: connection.email,
         })
@@ -204,14 +182,14 @@ export async function POST() {
     }
   }
 
-  console.log('FINAL SYNC SUMMARY:', {
+  logger.info('FINAL SYNC SUMMARY', {
     connectionsProcessed: connections.length,
     emailsProcessed,
     emailsSkipped,
     commitmentsInserted: commitmentsFound,
     duplicatesSkipped,
-    extractionErrors,
-    errors: syncErrors,
+    extractionErrorsCount: extractionErrors.length,
+    syncErrorsCount: syncErrors.length,
   })
 
   return NextResponse.json({

@@ -1,5 +1,6 @@
 import { prisma } from './prisma'
 import { CommitmentStatus } from '@prisma/client'
+import { logger } from './logger'
 
 type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
 
@@ -18,6 +19,21 @@ export function calculateRiskScore(
   let baseScore = 0
   let newStatus = status
   let isOverdue = false
+
+  // Status overrides
+  if (status === CommitmentStatus.COMPLETED) {
+    logger.info('RISK RESET: COMPLETED')
+    return { riskScore: 0, newStatus }
+  }
+
+  if (status === CommitmentStatus.ARCHIVED) {
+    logger.info('RISK RESET: ARCHIVED')
+    return { riskScore: 0, newStatus }
+  }
+
+  if (status === CommitmentStatus.MISSED) {
+    return { riskScore: 100, newStatus }
+  }
 
   if (deadline) {
     const diffMs = deadline.getTime() - now.getTime()
@@ -55,8 +71,8 @@ export function calculateRiskScore(
   ) {
     newStatus = CommitmentStatus.MISSED
     baseScore = 100
-    console.log('OVERDUE DETECTED', { status, newStatus, deadline, now })
-    console.log('COMMITMENT MARKED MISSED')
+    logger.warn('OVERDUE DETECTED', { status, newStatus, deadline, now })
+    logger.warn('COMMITMENT MARKED MISSED')
   } else {
     if (status === CommitmentStatus.DISCOVERED) {
       baseScore += 10
@@ -67,7 +83,7 @@ export function calculateRiskScore(
 
   const riskScore = Math.max(0, Math.min(100, baseScore))
 
-  console.log('RISK RECALCULATED', { baseScore, riskScore, status: newStatus })
+  logger.info('RISK RECALCULATED', { baseScore, riskScore, status: newStatus })
 
   return { riskScore, newStatus }
 }

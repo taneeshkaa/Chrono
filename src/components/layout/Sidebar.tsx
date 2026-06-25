@@ -1,0 +1,89 @@
+'use client'
+
+import { Home, Calendar, CheckSquare, Settings, BarChart, Users } from 'lucide-react'
+import { useState } from 'react'
+
+const navItems = [
+  { icon: Home, label: 'Workspace', active: true },
+  { icon: CheckSquare, label: 'Commitments', active: false },
+  { icon: Calendar, label: 'Calendar', active: false },
+  { icon: BarChart, label: 'Insights', active: false },
+  { icon: Users, label: 'Connections', active: false },
+  { icon: Settings, label: 'Settings', active: false },
+]
+
+export default function Sidebar() {
+  const [activeItem, setActiveItem] = useState('Workspace')
+
+  return (
+    <aside className="w-64 border-r border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col">
+      {/* Workspace Header */}
+      <div className="p-6 border-b border-slate-100 dark:border-slate-800">
+        <div className="flex items-center space-x-3">
+          <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+            <Home className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-slate-900 dark:text-white">Personal Workspace</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Last synced 2 min ago</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Navigation */}
+      <nav className="flex-1 p-4">
+        <ul className="space-y-1">
+          {navItems.map((item) => {
+            const Icon = item.icon
+            const isActive = activeItem === item.label
+            return (
+              <li key={item.label}>
+                <button
+                  onClick={() => setActiveItem(item.label)}
+                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
+                    isActive
+                      ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-800'
+                      : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <Icon className={`h-5 w-5 ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-slate-500'}`} />
+                  <span className="font-medium text-sm">{item.label}</span>
+                  {isActive && (
+                    <div className="ml-auto h-1.5 w-1.5 rounded-full bg-blue-600 dark:bg-blue-400"></div>
+                  )}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      </nav>
+
+      {/* Recent Activity */}
+      <div className="p-4 border-t border-slate-100 dark:border-slate-800">
+        <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">
+          Recent Activity
+        </h4>
+        <div className="space-y-2">
+          <div className="flex items-start space-x-2">
+            <div className="h-2 w-2 rounded-full bg-blue-500 mt-1.5"></div>
+            <div className="flex-1">
+              <p className="text-xs text-slate-700 dark:text-slate-300 line-clamp-2">
+                "Meeting with design team" extracted from Gmail
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-500">2 min ago</p>
+            </div>
+          </div>
+          <div className="flex items-start space-x-2">
+            <div className="h-2 w-2 rounded-full bg-emerald-500 mt-1.5"></div>
+            <div className="flex-1">
+              <p className="text-xs text-slate-700 dark:text-slate-300 line-clamp-2">
+                "Q2 Planning" added to calendar
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-500">15 min ago</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  )
+}

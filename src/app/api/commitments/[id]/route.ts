@@ -1,6 +1,7 @@
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { recalculateCommitmentRisk } from '@/lib/risk'
+import { createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } from '@/lib/calendar'
 import type { Category, CommitmentStatus, Priority } from '@prisma/client'
 import { NextResponse } from 'next/server'
 
@@ -165,37 +166,73 @@ export async function PATCH(
     return NextResponse.json({ error: 'Commitment not found' }, { status: 404 })
   }
 
-  const updated = await prisma.commitment.update({
-    where: { id },
-    data: result.data,
-  })
+  let calendarEventId = existing.calendarEventId;
+  let calendarSynced = existing.calendarSynced;
 
-  if (result.data.status === 'ACTIVE' && existing.status !== 'ACTIVE') {
+  // Auto-create event when commitment becomes ACTIVE and has a deadline
+  if (result.data.status === 'ACTIVE' && existing.status !== 'ACTIVE' && existing.deadline) {
     console.log('COMMITMENT ACTIVATED:', {
       commitmentId: id,
       userId: session.user.id,
-    })
+    });
+
+    try {
+      const eventId = await createCalendarEvent(session.user.id, {
+        ...existing,
+        deadline: result.data.deadline ?? existing.deadline,
+        status: 'ACTIVE',
+      });
+      calendarEventId = eventId;
+      calendarSynced = true;
+    } catch (err) {
+      console.error('FAILED TO CREATE CALENDAR EVENT:', err);
+    }
+  }
+
+  // Auto-update event if deadline is changed and commitment is active
+  if (result.data.deadline !== undefined && existing.calendarEventId) {
+    try {
+      const updatedCommitment = {
+        ...existing,
+        ...result.data,
+        deadline: result.data.deadline ?? existing.deadline,
+        calendarEventId: existing.calendarEventId,
+      };
+      await updateCalendarEvent(session.user.id, updatedCommitment);
+      calendarSynced = true;
+    } catch (err) {
+      console.error('FAILED TO UPDATE CALENDAR EVENT:', err);
+    }
   }
 
   if (result.data.status === 'COMPLETED' && existing.status !== 'COMPLETED') {
     console.log('COMMITMENT COMPLETED:', {
       commitmentId: id,
       userId: session.user.id,
-    })
+    });
   }
 
   if (result.data.status === 'ARCHIVED' && existing.status !== 'ARCHIVED') {
     console.log('COMMITMENT ARCHIVED:', {
       commitmentId: id,
       userId: session.user.id,
-    })
+    });
   }
 
   console.log('COMMITMENT UPDATED:', {
     commitmentId: id,
     userId: session.user.id,
     fields: Object.keys(result.data),
-  })
+  });
+
+  const updated = await prisma.commitment.update({
+    where: { id },
+    data: {
+      ...result.data,
+      calendarEventId,
+      calendarSynced,
+    },
+  });
 
   const riskUpdated = await recalculateCommitmentRisk(id)
 
@@ -217,6 +254,14 @@ export async function DELETE(
 
   if (!existing) {
     return NextResponse.json({ error: 'Commitment not found' }, { status: 404 })
+  }
+
+  if (existing.calendarEventId) {
+    try {
+      await deleteCalendarEvent(session.user.id, existing.calendarEventId);
+    } catch (err) {
+      console.error('FAILED TO DELETE CALENDAR EVENT:', err);
+    }
   }
 
   await prisma.commitment.delete({

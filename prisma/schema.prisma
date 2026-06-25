@@ -41,6 +41,8 @@ model Commitment {
   estimatedEffort Int?
   aiSummary       String?
   lastActivity    DateTime?
+  calendarEventId String?
+  calendarSynced  Boolean            @default(false)
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   sources         CommitmentSource[]
@@ -49,6 +51,11 @@ model Commitment {
   activityLogs    ActivityLog[]
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([deadline])
+  @@index([riskScore])
 }
 
 enum Category {
