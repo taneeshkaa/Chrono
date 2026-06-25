@@ -90,10 +90,6 @@ export async function fetchRecentEmails(accessToken: string): Promise<EmailData[
     q: GMAIL_SEARCH_QUERY,
   })
 
-  console.log('GMAIL QUERY:', {
-    maxResults: 5,
-    q: GMAIL_SEARCH_QUERY,
-  })
 
   const listResponse = await gmailFetch<GmailMessageListResponse>(
     `${GMAIL_API_BASE}/messages?${query.toString()}`,
@@ -101,7 +97,6 @@ export async function fetchRecentEmails(accessToken: string): Promise<EmailData[
   )
 
   const messages = listResponse.messages ?? []
-  console.log('GMAIL MESSAGE IDS:', messages.slice(0, 5).map((message) => message.id))
 
   const emails = await Promise.all(
     messages.map(async ({ id }) => {
@@ -122,18 +117,6 @@ export async function fetchRecentEmails(accessToken: string): Promise<EmailData[
     }),
   )
 
-  console.log('EMAIL COUNT:', emails.length)
-  console.log(
-    'EMAIL PREVIEW:',
-    emails.slice(0, 3).map((email) => ({
-      id: email.id,
-      subject: email.subject,
-      from: email.from,
-      date: email.date,
-      bodyPreview: email.body.substring(0, 500),
-      bodyLength: email.body.length,
-    })),
-  )
 
   return emails
 }

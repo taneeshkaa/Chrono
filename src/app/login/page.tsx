@@ -1,19 +1,37 @@
-import { signIn } from '@/auth'
+import { auth } from '@/auth'
+import { redirect } from 'next/navigation'
+import { handleSignIn } from '@/app/actions'
+import EmailLoginForm from '@/components/auth/EmailLoginForm'
 
-export default function LoginPage() {
+export default async function LoginPage() {
+  // If already logged in, redirect to dashboard
+  const session = await auth()
+  if (session?.user) {
+    redirect('/dashboard')
+  }
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
-        <h1 className="text-2xl font-bold text-center mb-6">Chrono</h1>
-        <form
-          action={async () => {
-            'use server'
-            await signIn('google', { redirectTo: '/dashboard' })
-          }}
-        >
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
+      <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-xl w-full max-w-md border border-slate-200 dark:border-slate-700">
+        {/* Logo */}
+        <div className="flex items-center justify-center mb-2">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+            <span className="text-white font-bold text-xl">C</span>
+          </div>
+        </div>
+        <h1 className="text-2xl font-bold text-center mb-1 text-slate-900 dark:text-white">
+          ChronoAI
+        </h1>
+        <p className="text-center text-sm text-slate-500 dark:text-slate-400 mb-8">
+          AI-powered commitment tracking
+        </p>
+
+        {/* Google Sign-In */}
+        <form action={handleSignIn}>
           <button
             type="submit"
-            className="w-full flex items-center justify-center gap-3 bg-white border border-gray-300 rounded-lg px-4 py-3 hover:bg-gray-50 transition-colors"
+            suppressHydrationWarning
+            className="w-full flex items-center justify-center gap-3 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors text-slate-900 dark:text-white font-medium"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">
               <path
@@ -36,6 +54,9 @@ export default function LoginPage() {
             Continue with Google
           </button>
         </form>
+
+        {/* Email/Password Login Form */}
+        <EmailLoginForm />
       </div>
     </div>
   )

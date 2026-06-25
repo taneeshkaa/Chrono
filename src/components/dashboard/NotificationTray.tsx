@@ -15,11 +15,19 @@ interface Notification {
 
 interface NotificationTrayProps {
   notifications: Notification[]
+  onDismiss?: (id: string) => void
+  onMarkAllRead?: () => void
+  onClearAll?: () => void
 }
 
-export default function NotificationTray({ notifications }: NotificationTrayProps) {
+export default function NotificationTray({ 
+  notifications,
+  onDismiss,
+  onMarkAllRead,
+  onClearAll 
+}: NotificationTrayProps) {
   const [isCollapsed, setIsCollapsed] = useState(false)
-  const [unreadCount] = useState(notifications.filter(n => !n.isRead).length)
+  const unreadCount = notifications.filter(n => !n.isRead).length
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
@@ -56,7 +64,7 @@ export default function NotificationTray({ notifications }: NotificationTrayProp
       <div className="fixed right-0 top-1/2 transform -translate-y-1/2">
         <button
           onClick={() => setIsCollapsed(false)}
-          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-l-lg p-3 shadow-lg"
+          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-l-lg p-3 shadow-lg cursor-pointer"
         >
           <div className="relative">
             <Bell className="h-5 w-5 text-slate-600 dark:text-slate-400" />
@@ -90,7 +98,7 @@ export default function NotificationTray({ notifications }: NotificationTrayProp
           <div className="flex items-center space-x-2">
             <button
               onClick={() => setIsCollapsed(true)}
-              className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
+              className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
             >
               <ChevronRight className="h-4 w-4 text-slate-400" />
             </button>
@@ -101,10 +109,16 @@ export default function NotificationTray({ notifications }: NotificationTrayProp
       {/* Actions */}
       <div className="p-4 border-b border-slate-100 dark:border-slate-800">
         <div className="flex items-center space-x-2">
-          <button className="flex-1 px-3 py-1.5 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors">
+          <button 
+            onClick={onMarkAllRead}
+            className="flex-1 px-3 py-1.5 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors cursor-pointer"
+          >
             Mark all read
           </button>
-          <button className="flex-1 px-3 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-colors">
+          <button 
+            onClick={onClearAll}
+            className="flex-1 px-3 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+          >
             Clear all
           </button>
         </div>
@@ -130,11 +144,14 @@ export default function NotificationTray({ notifications }: NotificationTrayProp
                       <h4 className="font-medium text-slate-900 dark:text-white text-sm">
                         {notification.title}
                       </h4>
-                      <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
                         {notification.message}
                       </p>
                     </div>
-                    <button className="p-1 hover:bg-white/50 dark:hover:bg-slate-800/50 rounded-lg">
+                    <button 
+                      onClick={() => onDismiss && onDismiss(notification.id)}
+                      className="p-1 hover:bg-white/50 dark:hover:bg-slate-800/50 rounded-lg cursor-pointer"
+                    >
                       <X className="h-3.5 w-3.5 text-slate-400" />
                     </button>
                   </div>
@@ -143,7 +160,7 @@ export default function NotificationTray({ notifications }: NotificationTrayProp
                       {notification.timestamp}
                     </span>
                     {notification.commitmentId && (
-                      <button className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300">
+                      <button className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 cursor-pointer">
                         View commitment →
                       </button>
                     )}
@@ -162,7 +179,7 @@ export default function NotificationTray({ notifications }: NotificationTrayProp
             <h4 className="text-lg font-medium text-slate-900 dark:text-white mb-2">
               All caught up
             </h4>
-            <p className="text-slate-500 dark:text-slate-400">
+            <p className="text-slate-550 dark:text-slate-450 text-xs">
               No new notifications. Your commitments are on track.
             </p>
           </div>
@@ -175,10 +192,10 @@ export default function NotificationTray({ notifications }: NotificationTrayProp
           <div className="flex items-center space-x-2">
             <Zap className="h-4 w-4 text-blue-600 dark:text-blue-400" />
             <div className="flex-1">
-              <p className="text-sm font-medium text-slate-900 dark:text-white">
+              <p className="text-xs font-semibold text-slate-900 dark:text-white">
                 AI Summary Active
               </p>
-              <p className="text-xs text-slate-600 dark:text-slate-400">
+              <p className="text-[10px] text-slate-600 dark:text-slate-400">
                 Analyzing commitment patterns in real-time
               </p>
             </div>

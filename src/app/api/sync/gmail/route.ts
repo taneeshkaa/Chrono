@@ -32,26 +32,13 @@ async function getRefreshedAccessToken(connection: {
     !connection.expiresAt ||
     connection.expiresAt.getTime() - 5 * 60 * 1000 < Date.now()
 
-  logger.info('TOKEN STATE', {
-    connectionId: connection.id,
-    email: connection.email,
-    connected: connection.connected,
-    hasAccessToken: Boolean(connection.accessToken),
-    hasRefreshToken: Boolean(connection.refreshToken),
-    expiresAt: connection.expiresAt?.toISOString() ?? null,
-    tokenExpired: isExpired,
-  })
-
   if (!isExpired) {
-    logger.info('TOKEN REFRESH SKIPPED', { email: connection.email })
     return connection.accessToken
   }
 
   if (!connection.refreshToken) {
     throw new Error('No refresh token; user must reconnect Gmail')
   }
-
-  logger.info('TOKEN REFRESH ATTEMPTED', { email: connection.email })
 
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -67,12 +54,6 @@ async function getRefreshedAccessToken(connection: {
   if (!res.ok) throw new Error(`Token refresh failed: ${await res.text()}`)
 
   const tokens = await res.json()
-
-  logger.info('TOKEN REFRESH SUCCESSFUL', {
-    email: connection.email,
-    hasNewAccessToken: Boolean(tokens.access_token),
-    expiresIn: tokens.expires_in ?? null,
-  })
 
   await prisma.connection.update({
     where: { id: connection.id },
@@ -100,9 +81,6 @@ export async function POST() {
     return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
   }
 
-  logger.info('SYNC START', {
-    userId: session.user.id })
-
   const gmailConnections = await prisma.connection.findMany({
     where: {
       userId: session.user.id,
@@ -111,10 +89,7 @@ export async function POST() {
   })
   const connections = gmailConnections.filter((connection) => connection.connected)
 
-  logger.info('CONNECTED GMAILS', { count: connections.length })
-
   if (connections.length === 0) {
-    logger.warn('SYNC STOPPED: no connected Gmail accounts')
 
     return NextResponse.json(
       {
@@ -148,16 +123,6 @@ export async function POST() {
       emailsSkipped += summary.emailsSkipped
       duplicatesSkipped += summary.duplicatesSkipped
       extractionErrors.push(...summary.errors)
-
-      logger.info('CONNECTION SYNC SUMMARY', {
-        connectionId: connection.id,
-        email: connection.email,
-        emailsProcessed: emails.length,
-        emailsSkipped: summary.emailsSkipped,
-        commitmentsInserted: summary.commitmentsExtracted,
-        duplicatesSkipped: summary.duplicatesSkipped,
-        errorsCount: summary.errors.length,
-      })
     } catch (err) {
       logger.error(`Failed to sync connection ${connection.id}`, {
         error: err instanceof Error ? err.message : String(err),
@@ -169,11 +134,6 @@ export async function POST() {
       })
 
       if (shouldMarkDisconnected(err)) {
-        logger.warn('MARKING GMAIL DISCONNECTED', {
-          connectionId: connection.id,
-          email: connection.email,
-        })
-
         await prisma.connection.update({
           where: { id: connection.id },
           data: { connected: false },
@@ -181,16 +141,6 @@ export async function POST() {
       }
     }
   }
-
-  logger.info('FINAL SYNC SUMMARY', {
-    connectionsProcessed: connections.length,
-    emailsProcessed,
-    emailsSkipped,
-    commitmentsInserted: commitmentsFound,
-    duplicatesSkipped,
-    extractionErrorsCount: extractionErrors.length,
-    syncErrorsCount: syncErrors.length,
-  })
 
   return NextResponse.json({
     success: true,

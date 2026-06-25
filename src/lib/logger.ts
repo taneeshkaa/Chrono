@@ -2,12 +2,10 @@ const isDev = process.env.NODE_ENV === 'development'
 
 export const logger = {
   info: (message: string, meta?: unknown) => {
-    if (isDev) {
-      console.log(`[INFO] ${message}`, meta ?? '')
-    }
+    // Disabled to prevent info logs in the terminal
   },
   warn: (message: string, meta?: unknown) => {
-    console.warn(`[WARN] ${message}`, meta ?? '')
+    // Disabled to prevent warning logs in the terminal
   },
   error: (message: string, meta?: unknown) => {
     console.error(`[ERROR] ${message}`, meta ?? '')

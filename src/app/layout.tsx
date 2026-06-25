@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import GlobalNav from "@/components/layout/GlobalNav";
-import Sidebar from "@/components/layout/Sidebar";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -23,15 +21,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} h-full antialiased`}>
       <body className="min-h-full bg-slate-50 dark:bg-slate-950 font-sans">
-        <div className="flex flex-col h-screen">
-          <GlobalNav />
-          <div className="flex flex-1 overflow-hidden">
-            <Sidebar />
-            <main className="flex-1 overflow-y-auto bg-white dark:bg-slate-900">
-              {children}
-            </main>
-          </div>
-        </div>
+        {children}
       </body>
     </html>
   );

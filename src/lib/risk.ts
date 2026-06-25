@@ -22,12 +22,10 @@ export function calculateRiskScore(
 
   // Status overrides
   if (status === CommitmentStatus.COMPLETED) {
-    logger.info('RISK RESET: COMPLETED')
     return { riskScore: 0, newStatus }
   }
 
   if (status === CommitmentStatus.ARCHIVED) {
-    logger.info('RISK RESET: ARCHIVED')
     return { riskScore: 0, newStatus }
   }
 
@@ -82,8 +80,6 @@ export function calculateRiskScore(
   }
 
   const riskScore = Math.max(0, Math.min(100, baseScore))
-
-  logger.info('RISK RECALCULATED', { baseScore, riskScore, status: newStatus })
 
   return { riskScore, newStatus }
 }

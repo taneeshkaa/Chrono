@@ -1,7 +1,7 @@
 'use client'
 
 import { Calendar, Clock, AlertTriangle, CheckCircle, MoreVertical } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 interface Commitment {
   id: string
@@ -16,10 +16,48 @@ interface Commitment {
 
 interface CommitmentsLedgerProps {
   commitments: Commitment[]
+  onRefresh?: () => void
 }
 
-export default function CommitmentsLedger({ commitments }: CommitmentsLedgerProps) {
+export default function CommitmentsLedger({ commitments, onRefresh }: CommitmentsLedgerProps) {
   const [selectedCommitment, setSelectedCommitment] = useState<string | null>(null)
+  const [filter, setFilter] = useState<'today' | 'week' | 'all'>('all')
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null)
+
+  useEffect(() => {
+    const closeMenu = () => setActiveMenuId(null)
+    window.addEventListener('click', closeMenu)
+    return () => window.removeEventListener('click', closeMenu)
+  }, [])
+
+  const handleUpdateStatus = async (id: string, status: string) => {
+    setActiveMenuId(null)
+    try {
+      const res = await fetch(`/api/commitments/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      })
+      if (!res.ok) throw new Error('Failed to update status')
+      if (onRefresh) onRefresh()
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    setActiveMenuId(null)
+    if (!confirm('Are you sure you want to delete this commitment?')) return
+    try {
+      const res = await fetch(`/api/commitments/${id}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) throw new Error('Failed to delete commitment')
+      if (onRefresh) onRefresh()
+    } catch (err) {
+      console.error(err)
+    }
+  }
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -72,30 +110,77 @@ export default function CommitmentsLedger({ commitments }: CommitmentsLedgerProp
     }
   }
 
+  const filteredCommitments = commitments.filter((c) => {
+    if (filter === 'all') return true
+    if (!c.deadline) return false
+    
+    const d = new Date(c.deadline)
+    const now = new Date()
+    
+    if (filter === 'today') {
+      const isSameDay = d.getDate() === now.getDate() && 
+                        d.getMonth() === now.getMonth() && 
+                        d.getFullYear() === now.getFullYear()
+      const isPastDueAndActive = d < now && (c.status === 'ACTIVE' || c.status === 'AT_RISK')
+      return isSameDay || isPastDueAndActive
+    }
+    
+    if (filter === 'week') {
+      const diffTime = d.getTime() - now.getTime()
+      const diffDays = diffTime / (1000 * 60 * 60 * 24)
+      const isWithinNext7Days = diffDays >= -1 && diffDays <= 7
+      const isPastDueAndActive = d < now && (c.status === 'ACTIVE' || c.status === 'AT_RISK')
+      return isWithinNext7Days || isPastDueAndActive
+    }
+    
+    return true
+  })
+
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl p-6 h-full">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Commitments Ledger</h3>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            {commitments.length} commitments in your workspace
+            {filteredCommitments.length} commitments listed
           </p>
         </div>
         <div className="flex items-center space-x-2">
-          <button className="px-3 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-colors">
+          <button 
+            onClick={() => setFilter('today')}
+            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors cursor-pointer ${
+              filter === 'today'
+                ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-semibold'
+                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+            }`}
+          >
             Today
           </button>
-          <button className="px-3 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-colors">
+          <button 
+            onClick={() => setFilter('week')}
+            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors cursor-pointer ${
+              filter === 'week'
+                ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-semibold'
+                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+            }`}
+          >
             This Week
           </button>
-          <button className="px-3 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-colors">
+          <button 
+            onClick={() => setFilter('all')}
+            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors cursor-pointer ${
+              filter === 'all'
+                ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-semibold'
+                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+            }`}
+          >
             All
           </button>
         </div>
       </div>
 
       <div className="space-y-3">
-        {commitments.map((commitment) => {
+        {filteredCommitments.map((commitment) => {
           const riskBadge = getRiskBadge(commitment.riskScore)
           const isSelected = selectedCommitment === commitment.id
 
@@ -145,22 +230,59 @@ export default function CommitmentsLedger({ commitments }: CommitmentsLedgerProp
                     )}
                   </div>
                 </div>
-                <button className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg">
-                  <MoreVertical className="h-4 w-4 text-slate-400" />
-                </button>
+                <div className="relative">
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setActiveMenuId(activeMenuId === commitment.id ? null : commitment.id)
+                    }}
+                    className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
+                  >
+                    <MoreVertical className="h-4 w-4 text-slate-400" />
+                  </button>
+                  {activeMenuId === commitment.id && (
+                    <div 
+                      className="absolute right-0 mt-1 w-36 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-20 py-1 text-xs"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {commitment.status !== 'COMPLETED' && (
+                        <button
+                          onClick={() => handleUpdateStatus(commitment.id, 'COMPLETED')}
+                          className="w-full text-left px-3 py-2 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-1.5 cursor-pointer"
+                        >
+                          Mark Completed
+                        </button>
+                      )}
+                      {commitment.status !== 'ACTIVE' && (
+                        <button
+                          onClick={() => handleUpdateStatus(commitment.id, 'ACTIVE')}
+                          className="w-full text-left px-3 py-2 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-1.5 cursor-pointer"
+                        >
+                          Mark Active
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDelete(commitment.id)}
+                        className="w-full text-left px-3 py-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 flex items-center gap-1.5 cursor-pointer font-medium"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )
         })}
 
-        {commitments.length === 0 && (
+        {filteredCommitments.length === 0 && (
           <div className="text-center py-12">
             <div className="h-16 w-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-4">
               <CheckCircle className="h-8 w-8 text-slate-400 dark:text-slate-600" />
             </div>
-            <h4 className="text-lg font-medium text-slate-900 dark:text-white mb-2">All caught up</h4>
+            <h4 className="text-lg font-medium text-slate-900 dark:text-white mb-2">No commitments</h4>
             <p className="text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-              Your commitments ledger is empty. All extracted commitments are properly scheduled and managed.
+              No commitments found matching this filter.
             </p>
           </div>
         )}

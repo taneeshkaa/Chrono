@@ -42,7 +42,6 @@ export async function generateDailySummary(userId: string): Promise<DailySummary
     description: summaryDescription
   };
 
-  logger.info('DAILY SUMMARY GENERATED', summary);
   return summary;
 }
 
@@ -122,6 +121,5 @@ export async function generateNotifications(userId: string): Promise<Notificatio
   }
 
   notifications.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  logger.info('NOTIFICATIONS GENERATED', notifications);
   return notifications;
 }

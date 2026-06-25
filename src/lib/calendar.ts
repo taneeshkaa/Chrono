@@ -168,8 +168,6 @@ export async function createCalendarEvent(
     { retries: 3, delay: 1000 },
   );
 
-  logger.info('CALENDAR EVENT CREATED', { eventId: response.id });
-
   return response.id;
 }
 
@@ -223,8 +221,6 @@ export async function updateCalendarEvent(
     { retries: 3, delay: 1000 },
   );
 
-  logger.info('CALENDAR EVENT UPDATED', { eventId: response.id });
-
   return response.id;
 }
 
@@ -256,6 +252,4 @@ export async function deleteCalendarEvent(
       ),
     { retries: 3, delay: 1000 },
   );
-
-  logger.info('CALENDAR EVENT DELETED', { eventId: calendarEventId });
 }

@@ -5,6 +5,7 @@ import { Redis } from '@upstash/redis'
 export type RateLimitKey = 
   | 'sync-gmail' 
   | 'api-insights' 
+  | 'api-simulation' 
   | 'calendar-sync' 
   | 'api-notifications'
 
@@ -43,6 +44,11 @@ if (hasRedisConfig) {
     'api-notifications': new Ratelimit({
       redis: redis,
       limiter: Ratelimit.slidingWindow(20, '1 m'),
+      analytics: true,
+    }),
+    'api-simulation': new Ratelimit({
+      redis: redis,
+      limiter: Ratelimit.slidingWindow(10, '1 m'),
       analytics: true,
     }),
   }

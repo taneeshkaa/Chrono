@@ -12,6 +12,10 @@ export async function POST() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const token = await prisma.connection.findFirst({
+    where: { userId: session.user.id, provider: 'gmail' }
+  });
+
   // Rate limit
   const identifier = session.user.id
   const rateLimitResult = await rateLimit('calendar-sync', identifier)
@@ -25,7 +29,7 @@ export async function POST() {
   const commitments = await prisma.commitment.findMany({
     where: {
       userId: session.user.id,
-      status: 'ACTIVE',
+      status: { in: ['ACTIVE', 'DISCOVERED'] },
       deadline: { not: null },
     },
   });
@@ -47,8 +51,6 @@ export async function POST() {
       logger.error('FAILED TO SYNC COMMITMENT', { commitmentId: commitment.id, error: err })
     }
   }
-
-  logger.info('CALENDAR SYNC COMPLETE', { eventsCreated, eventsUpdated });
 
   return NextResponse.json({ eventsCreated, eventsUpdated });
 }

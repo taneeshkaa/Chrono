@@ -170,6 +170,12 @@ const ACTIONABLE_SUBJECT_PATTERNS = [
   /reminder:/i,
   /due tomorrow/i,
   /due today/i,
+  /\binvitation\b/i,
+  /\bonboarding\b/i,
+  /\bbriefing\b/i,
+  /\bmeet\b/i,
+  /\bconfirmation\b/i,
+  /\bjoin\b.*\bmeet\b/i,
 ] as const
 
 const ACTIONABLE_BODY_PATTERNS = [
@@ -324,11 +330,28 @@ export function parseDeadline(
   }
 
   const trimmed = raw.trim()
-  const lower = trimmed.toLowerCase()
+
+  // Pre-process and clean the string
+  let cleaned = trimmed
+    // Remove day-of-week prefix (Mon, Tue, Wed, Thu, Fri, Sat, Sun)
+    .replace(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)(s|day|sday|nesday|rsday|iday|urday)?(?:day)?(?:,\s*|\s+)/i, '')
+    // Remove time range end-bound " - 11:30pm"
+    .replace(/\s*-\s*\d{1,2}:\d{2}\s*(am|pm)/i, '')
+    // Insert space before am/pm if missing: "10:30pm" → "10:30 pm"
+    .replace(/(\d)\s*(am|pm)/i, '$1 $2')
+    .trim()
+
+  // Try parsing fully-formed date/time strings first to avoid losing time details via regex fallbacks
+  const parsed = Date.parse(cleaned)
+  if (!Number.isNaN(parsed)) {
+    return new Date(parsed)
+  }
+
+  const lower = cleaned.toLowerCase()
   const ref = startOfDay(referenceDate)
 
-  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
-    const isoDate = new Date(trimmed)
+  if (/^\d{4}-\d{2}-\d{2}/.test(cleaned)) {
+    const isoDate = new Date(cleaned)
 
     if (!Number.isNaN(isoDate.getTime())) {
       return isoDate
@@ -354,13 +377,20 @@ export function parseDeadline(
     }
   }
 
+  const SHORT_MONTH_NAMES = [
+    'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'
+  ]
+
   const dayMonthYearMatch = lower.match(
-    /(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{4})/i,
+    /(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\s+(\d{4})/i,
   )
 
   if (dayMonthYearMatch) {
     const day = Number(dayMonthYearMatch[1])
-    const month = MONTH_NAMES.indexOf(dayMonthYearMatch[2].toLowerCase() as (typeof MONTH_NAMES)[number])
+    let month = MONTH_NAMES.indexOf(dayMonthYearMatch[2].toLowerCase() as (typeof MONTH_NAMES)[number])
+    if (month === -1) {
+      month = SHORT_MONTH_NAMES.indexOf(dayMonthYearMatch[2].toLowerCase())
+    }
     const year = Number(dayMonthYearMatch[3])
 
     if (month >= 0) {
@@ -373,11 +403,14 @@ export function parseDeadline(
   }
 
   const monthDayMatch = lower.match(
-    /(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:,?\s+(\d{4}))?/i,
+    /(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\s+(\d{1,2})(?:,?\s+(\d{4}))?/i,
   )
 
   if (monthDayMatch) {
-    const month = MONTH_NAMES.indexOf(monthDayMatch[1].toLowerCase() as (typeof MONTH_NAMES)[number])
+    let month = MONTH_NAMES.indexOf(monthDayMatch[1].toLowerCase() as (typeof MONTH_NAMES)[number])
+    if (month === -1) {
+      month = SHORT_MONTH_NAMES.indexOf(monthDayMatch[1].toLowerCase())
+    }
     const day = Number(monthDayMatch[2])
     const year = monthDayMatch[3] ? Number(monthDayMatch[3]) : referenceDate.getFullYear()
     const parsed = new Date(year, month, day)
@@ -408,12 +441,7 @@ export function parseDeadline(
     return null
   }
 
-  const parsed = Date.parse(trimmed)
-
-  if (!Number.isNaN(parsed)) {
-    return new Date(parsed)
-  }
-
+  console.error('parseDeadline failed for:', raw, '→ cleaned:', cleaned)
   return null
 }
 
@@ -584,13 +612,7 @@ async function callLLM(emails: EmailData[]) {
   const endpoint = GROQ_ENDPOINT
   const keyPrefix = apiKey?.slice(0, 12) ?? null
 
-  console.log('ENV GROQ EXISTS:', !!process.env.GROQ_API_KEY)
-  console.log('EXTRACTOR KEY PREFIX:', keyPrefix)
-  console.log('GROQ KEY PREFIX:', keyPrefix)
-  console.log('EXTRACTOR MODEL:', GROQ_MODEL)
-  console.log('GROQ MODEL:', GROQ_MODEL)
-  console.log('GROQ ENDPOINT:', endpoint)
-
+            
   if (!apiKey) {
     throw new Error('GROQ_API_KEY is not configured')
   }
@@ -602,19 +624,9 @@ async function callLLM(emails: EmailData[]) {
     (email) => email.body.length <= MAX_EMAIL_BODY_LENGTH,
   )
 
-  console.log(
-    'LLM SKIPPED EMAILS:',
-    skippedEmails.map((email) => ({
-      id: email.id,
-      subject: email.subject,
-      bodyLength: email.body.length,
-      reason: `body exceeds ${MAX_EMAIL_BODY_LENGTH} characters`,
-    })),
-  )
-
+  
   if (processableEmails.length === 0) {
-    console.log('LLM SKIPPED: no emails under request size limit')
-    return []
+        return []
   }
 
   const prompt = buildExtractionPrompt(processableEmails)
@@ -630,23 +642,7 @@ async function callLLM(emails: EmailData[]) {
     temperature: 0,
   })
 
-  console.log(
-    'LLM EMAIL INPUTS:',
-    processableEmails.map((email) => ({
-      id: email.id,
-      subject: email.subject,
-      bodyLength: email.body.length,
-      promptBodyLength: email.body.substring(0, LLM_BODY_PREVIEW_LENGTH).length,
-    })),
-  )
-  console.log('LLM REQUEST SIZE:', {
-    promptCharacters: prompt.length,
-    requestBodyBytes: Buffer.byteLength(requestBody, 'utf8'),
-    emailsSent: processableEmails.length,
-    emailsSkipped: skippedEmails.length,
-  })
-  console.log('LLM PROMPT:', prompt)
-
+      
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -656,8 +652,7 @@ async function callLLM(emails: EmailData[]) {
     body: requestBody,
   })
 
-  console.log('LLM API STATUS:', response.status)
-
+  
   if (!response.ok) {
     throw new Error(
       `Groq API request failed: ${response.status} ${await response.text()}`,
@@ -668,10 +663,7 @@ async function callLLM(emails: EmailData[]) {
 
   const text = data.choices?.[0]?.message?.content ?? ''
 
-  console.log('RAW LLM RESPONSE:', JSON.stringify(data, null, 2))
-  console.log('LLM TOKEN USAGE:', data.usage ?? null)
-  console.log('LLM TEXT:', text)
-
+      
   return parseJsonArray(text)
 }
 
@@ -703,8 +695,7 @@ async function saveCommitment(
   )
 
   if (duplicate) {
-    console.log('DUPLICATE SKIPPED:', commitment.title)
-    summary.duplicatesSkipped += 1
+        summary.duplicatesSkipped += 1
     return
   }
 
@@ -724,19 +715,12 @@ async function saveCommitment(
     riskScore,
   }
 
-  console.log('COMMITMENT TO INSERT:', commitmentData)
-
+  
   const createdCommitment = await prisma.commitment.create({
     data: commitmentData,
   })
 
-  console.log('CREATED COMMITMENT:', createdCommitment.id)
-  console.log('EXTRACTED COMMITMENT:', {
-    Title: commitment.title,
-    Priority: commitment.priority,
-    Deadline: commitment.deadline?.toISOString() ?? null,
-  })
-
+    
   await prisma.commitmentSource.create({
     data: {
       commitmentId: createdCommitment.id,
@@ -760,11 +744,9 @@ export async function extractCommitments(
     errors: [],
   }
 
-  console.log('EXTRACTOR EMAIL COUNT:', emails.length)
-
+  
   if (emails.length === 0) {
-    console.log('EXTRACTOR SKIPPED: no emails to process')
-    return summary
+        return summary
   }
 
   const actionableEmails: EmailData[] = []
@@ -772,26 +754,14 @@ export async function extractCommitments(
   for (const email of emails) {
     const classification = classifyEmail(email)
 
-    console.log('EMAIL CLASSIFICATION:', {
-      Subject: email.subject,
-      Type: classification,
-    })
-
+    
     if (email.body.length > MAX_EMAIL_BODY_LENGTH) {
-      console.log('SKIPPED EMAIL:', {
-        Subject: email.subject,
-        Reason: `Body exceeds ${MAX_EMAIL_BODY_LENGTH} characters`,
-      })
-      summary.emailsSkipped += 1
+            summary.emailsSkipped += 1
       continue
     }
 
     if (classification !== 'ACTIONABLE') {
-      console.log('SKIPPED EMAIL:', {
-        Subject: email.subject,
-        Reason: classification,
-      })
-      summary.emailsSkipped += 1
+            summary.emailsSkipped += 1
       continue
     }
 
@@ -803,8 +773,7 @@ export async function extractCommitments(
       const referenceDate = parseEmailReferenceDate(email.date)
       const rawCommitments = await callLLM([email])
 
-      console.log('PARSED COMMITMENTS:', JSON.stringify(rawCommitments, null, 2))
-
+      
       const commitments = rawCommitments
         .map((raw) => normalizeCommitment(raw, referenceDate))
         .filter(
@@ -812,11 +781,7 @@ export async function extractCommitments(
             Boolean(commitment),
         )
 
-      console.log(
-        'NORMALIZED COMMITMENTS:',
-        JSON.stringify(commitments, null, 2),
-      )
-
+      
       for (const commitment of commitments) {
         await saveCommitment(userId, commitment, summary)
       }
@@ -831,7 +796,6 @@ export async function extractCommitments(
     }
   }
 
-  console.log('EXTRACTION SUMMARY:', summary)
-
+  
   return summary
 }

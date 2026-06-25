@@ -6,19 +6,9 @@ import { NextResponse } from 'next/server'
 export async function GET() {
   const session = await auth()
 
-  console.log('AUTH RESULT:', session)
-  console.log('AUTH USER:', session?.user)
-  console.log('AUTH USER EMAIL:', session?.user?.email)
-  console.log('AUTH USER ID:', session?.user?.id)
-
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-
-  console.log('DASHBOARD COMMITMENTS QUERY USER:', {
-    id: session.user.id,
-    email: session.user.email,
-  })
 
   await recalculateAllRisks()
 
@@ -31,16 +21,40 @@ export async function GET() {
     },
   })
 
-  console.log('DASHBOARD COMMITMENTS:', commitments.length)
-  console.log(
-    'DASHBOARD COMMITMENT IDS:',
-    commitments.slice(0, 10).map((commitment) => ({
-      id: commitment.id,
-      title: commitment.title,
-      status: commitment.status,
-      userId: commitment.userId,
-    })),
-  )
-
   return NextResponse.json(commitments)
+}
+
+export async function POST(request: Request) {
+  const session = await auth()
+
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  try {
+    const body = await request.json()
+    const { title, description, category, priority, deadline, estimatedEffort } = body
+
+    if (!title || typeof title !== 'string' || title.trim().length === 0) {
+      return NextResponse.json({ error: 'Title is required' }, { status: 400 })
+    }
+
+    const commitment = await prisma.commitment.create({
+      data: {
+        userId: session.user.id,
+        title: title.trim(),
+        description: description?.trim() || null,
+        category: category || 'PERSONAL',
+        priority: priority || 'MEDIUM',
+        status: 'ACTIVE',
+        deadline: deadline ? new Date(deadline) : null,
+        estimatedEffort: estimatedEffort ? parseInt(estimatedEffort) : null,
+      },
+    })
+
+    return NextResponse.json(commitment)
+  } catch (error) {
+    console.error('Failed to create commitment:', error)
+    return NextResponse.json({ error: 'Failed to create commitment' }, { status: 500 })
+  }
 }
