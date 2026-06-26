@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "ChronoAI Assistant",
+  "version": "1.0.0",
+  "description": "Automatically syncs your AI conversations to ChronoAI",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "cookies"
+  ],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://api.chronoai.app/*",
+    "https://chronoai.app/*",
+    "http://localhost:3000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://chronoai.app/*",
+        "http://localhost:3000/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "ChronoAI Assistant"
+  }
+}

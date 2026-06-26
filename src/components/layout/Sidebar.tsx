@@ -1,6 +1,6 @@
 'use client'
 
-import { Home, Calendar, CheckSquare, Settings, Users, LogOut, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Home, Calendar, CheckSquare, Settings, Users, LogOut, ChevronLeft, ChevronRight, BarChart2 } from 'lucide-react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { handleSignOut } from '@/app/actions'
 import { useState, useEffect } from 'react'
@@ -9,6 +9,7 @@ const navItems = [
   { icon: Home, label: 'Dashboard', href: '/dashboard' },
   { icon: CheckSquare, label: 'Commitments', href: '/dashboard?tab=commitments' },
   { icon: Calendar, label: 'Calendar', href: '/dashboard?tab=calendar' },
+  { icon: BarChart2, label: 'Analytics', href: '/analytics' },
   { icon: Users, label: 'Connections', href: '/connections' },
   { icon: Settings, label: 'Settings', href: '/dashboard?tab=settings' },
 ]
@@ -37,6 +38,7 @@ export default function Sidebar() {
 
   const getActiveItem = () => {
     if (pathname === '/connections') return 'Connections'
+    if (pathname === '/analytics') return 'Analytics'
     if (tab === 'commitments') return 'Commitments'
     if (tab === 'calendar') return 'Calendar'
     if (tab === 'settings') return 'Settings'

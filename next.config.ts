@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 
+// Touch next.config.ts to trigger dev server reload of Prisma Client
 const nextConfig = {
   images: {
     remotePatterns: [

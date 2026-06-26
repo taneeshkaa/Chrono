@@ -18,16 +18,32 @@ export default function ConnectionsClient() {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
+  const [extensionConnections, setExtensionConnections] = useState({
+    chatgpt: false,
+    claude: false,
+    gemini: false,
+  })
 
   const success = searchParams.get('success')
   const error = searchParams.get('error')
 
   const fetchConnections = async () => {
     try {
-      const res = await fetch('/api/connections/gmail/list')
-      if (res.ok) {
-        const data = await res.json()
+      const [gmailRes, extRes] = await Promise.all([
+        fetch('/api/connections/gmail/list'),
+        fetch('/api/connections/chatgpt'),
+      ])
+
+      if (gmailRes.ok) {
+        const data = await gmailRes.json()
         setConnections(Array.isArray(data) ? data : [])
+      }
+
+      if (extRes.ok) {
+        const extData = await extRes.json()
+        if (extData.success && extData.connected) {
+          setExtensionConnections(extData.connected)
+        }
       }
     } catch (err) {
       console.error('Failed to fetch connections:', err)
@@ -220,6 +236,73 @@ export default function ConnectionsClient() {
               ))}
             </div>
           )}
+        </div>
+
+        {/* Browser Extension Connections */}
+        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 mb-6">
+          <div className="flex justify-between items-center mb-6">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                AI Assistants (via Extension)
+              </h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                Sync conversations from ChatGPT, Claude, and Gemini silently in the background
+              </p>
+            </div>
+            <button
+              onClick={() => window.open('/auth/extension', '_blank')}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-650 hover:bg-indigo-700 text-white rounded-lg transition-all text-sm font-medium cursor-pointer"
+            >
+              <Plus className="h-4 w-4" />
+              Connect Extension
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {[
+              {
+                name: 'ChatGPT',
+                description: 'Sync your ChatGPT conversations automatically',
+                icon: '🤖',
+                connected: extensionConnections.chatgpt,
+              },
+              {
+                name: 'Claude',
+                description: 'Sync your Claude conversations automatically',
+                icon: '🎨',
+                connected: extensionConnections.claude,
+              },
+              {
+                name: 'Gemini',
+                description: 'Sync your Gemini conversations automatically',
+                icon: '✨',
+                connected: extensionConnections.gemini,
+              },
+            ].map((app) => (
+              <div
+                key={app.name}
+                className="flex justify-between items-center p-4 bg-slate-50 dark:bg-slate-700/50 rounded-lg"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">{app.icon}</span>
+                  <div>
+                    <p className="font-medium text-slate-900 dark:text-white">
+                      {app.name}
+                    </p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                      {app.description}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className={`h-2.5 w-2.5 rounded-full ${app.connected ? 'bg-emerald-500' : 'bg-slate-350 dark:bg-slate-600'}`}></div>
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-350">
+                    {app.connected ? 'Active' : 'Not Connected'}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Calendar Section */}

@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useState, useCallback, Suspense } from 'react'
-import { RefreshCw, Mail, Calendar, AlertTriangle, Plus, X, BarChart2, Bell, CheckCircle2, Trash2, CheckCircle, Settings as SettingsIcon, BrainCircuit, ShieldAlert, Sparkles, Clock, Target, CalendarDays, ChevronRight } from 'lucide-react'
+import { RefreshCw, Mail, Calendar, AlertTriangle, Plus, X, BarChart2, Bell, CheckCircle2, Trash2, CheckCircle, Settings as SettingsIcon, BrainCircuit, ShieldAlert, Sparkles, Clock, Target, CalendarDays, ChevronRight, ChevronLeft } from 'lucide-react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import TodaysFocus from './TodaysFocus'
 import CommitmentsLedger from './CommitmentsLedger'
 import CalendarView from './CalendarView'
 import NotificationTray from './NotificationTray'
 import FutureOutlook from './FutureOutlook'
+import ContextCard from './ContextCard'
 import type { SimulationResult } from '@/types/simulation'
 
 type UserInfo = {
@@ -104,6 +105,65 @@ export default function DashboardClient({ user }: Props) {
   })
   const [settingsSaveStatus, setSettingsSaveStatus] = useState<string | null>(null)
 
+  const [selectedContextId, setSelectedContextId] = useState<string | null>(null)
+  const [selectedContext, setSelectedContext] = useState<any>(null)
+  const [contextLoading, setContextLoading] = useState(false)
+
+  const [contexts, setContexts] = useState<any[]>([])
+  const [contextsLoading, setContextsLoading] = useState(true)
+
+  // Fetch detail on select
+  useEffect(() => {
+    if (!selectedContextId) {
+      setSelectedContext(null)
+      return
+    }
+
+    const fetchContextDetail = async () => {
+      setContextLoading(true)
+      try {
+        const res = await fetch(`/api/commitments/${selectedContextId}`)
+        if (res.ok) {
+          const data = await res.json()
+          setSelectedContext(data)
+        } else {
+          const local = commitments.find(c => c.id === selectedContextId)
+          setSelectedContext(local)
+        }
+      } catch (err) {
+        console.error(err)
+        const local = commitments.find(c => c.id === selectedContextId)
+        setSelectedContext(local)
+      } finally {
+        setContextLoading(false)
+      }
+    }
+
+    fetchContextDetail()
+  }, [selectedContextId, commitments])
+
+  const formatLastActive = (dateString: string | Date | undefined | null) => {
+    if (!dateString) return 'Never'
+    try {
+      const date = new Date(dateString)
+      const now = new Date()
+      const diffMs = now.getTime() - date.getTime()
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+      
+      const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      
+      if (diffDays === 0) {
+        return `Today at ${timeStr}`
+      } else if (diffDays === 1) {
+        return `Yesterday at ${timeStr}`
+      } else {
+        return `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${timeStr}`
+      }
+    } catch {
+      return 'Recently'
+    }
+  }
+
   const fetchSimulation = useCallback(async () => {
     setSimulationLoading(true)
     setSimulationError(false)
@@ -127,27 +187,30 @@ export default function DashboardClient({ user }: Props) {
     fetchSimulation()
 
     try {
-      const [commitmentsRes, eventsRes, notificationsRes, insightsRes, connectionsRes] = await Promise.all([
+      const [commitmentsRes, eventsRes, notificationsRes, insightsRes, connectionsRes, contextsRes] = await Promise.all([
         fetch('/api/commitments'),
         fetch('/api/calendar/events'),
         fetch('/api/notifications'),
         fetch('/api/insights'),
         fetch('/api/connections/gmail/list'),
+        fetch('/api/dashboard/contexts'),
       ])
 
-      const [commitmentsData, eventsData, notificationsData, insightsData, connectionsData] = await Promise.all([
+      const [commitmentsData, eventsData, notificationsData, insightsData, connectionsData, contextsData] = await Promise.all([
         commitmentsRes.ok ? commitmentsRes.json() : [],
         eventsRes.ok ? eventsRes.json() : [],
         notificationsRes.ok ? notificationsRes.json() : [],
         insightsRes.ok ? insightsRes.json() : [],
         connectionsRes.ok ? connectionsRes.json() : [],
+        contextsRes.ok ? contextsRes.json() : { contexts: [] },
       ])
 
       setCommitments(Array.isArray(commitmentsData) ? commitmentsData : [])
       setCalendarEvents(Array.isArray(eventsData) ? eventsData : [])
       setNotifications(Array.isArray(notificationsData) ? notificationsData : [])
       setInsights(Array.isArray(insightsData) ? insightsData : [])
-
+      setContexts(contextsData && Array.isArray(contextsData.contexts) ? contextsData.contexts : [])
+      
       const connectedAccounts = Array.isArray(connectionsData)
         ? connectionsData.filter((c: { connected: boolean }) => c.connected)
         : []
@@ -156,6 +219,7 @@ export default function DashboardClient({ user }: Props) {
       console.error('Failed to fetch dashboard data:', error)
     } finally {
       setLoading(false)
+      setContextsLoading(false)
     }
   }, [fetchSimulation])
 
@@ -390,281 +454,345 @@ export default function DashboardClient({ user }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 p-6 overflow-y-auto">
-      {/* Header Panel */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6 border-b border-slate-200 dark:border-slate-800 pb-5">
-        <div>
-          <h1 className="text-3xl font-extrabold tracking-tight">
-            Welcome back{user.name ? `, ${user.name.split(' ')[0]}` : ''}
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-          </p>
-        </div>
-        
-        <div className="flex flex-wrap items-center gap-3">
-          {/* New Commitment Button */}
-          <button
-            onClick={() => setIsNewCommitmentOpen(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg transition-all shadow-md shadow-blue-500/10 hover:shadow-lg text-sm font-semibold cursor-pointer"
-          >
-            <Plus className="h-4.5 w-4.5" />
-            New Commitment
-          </button>
-
-          {!hasGmailConnection ? (
-            <button
-              onClick={() => router.push('/connections')}
-              className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900/50 rounded-lg hover:bg-amber-100 transition-colors text-sm font-semibold"
-            >
-              <AlertTriangle className="h-4.5 w-4.5" />
-              Connect Gmail First
-            </button>
-          ) : (
-            <>
-              <button
-                onClick={syncEmails}
-                disabled={emailSyncState.status === 'syncing'}
-                className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 disabled:opacity-50 rounded-lg transition-all text-sm font-semibold cursor-pointer"
-              >
-                {emailSyncState.status === 'syncing' ? (
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Mail className="h-4.5 w-4.5 text-blue-500" />
-                )}
-                {emailSyncState.status === 'syncing' ? 'Syncing...' : 'Sync Emails'}
-              </button>
-
-              <button
-                onClick={syncCalendar}
-                disabled={calendarSyncState.status === 'syncing'}
-                className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 disabled:opacity-50 rounded-lg transition-all text-sm font-semibold cursor-pointer"
-              >
-                {calendarSyncState.status === 'syncing' ? (
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Calendar className="h-4.5 w-4.5 text-purple-500" />
-                )}
-                {calendarSyncState.status === 'syncing' ? 'Syncing...' : 'Sync Calendar'}
-              </button>
-            </>
+    <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 p-8 overflow-y-auto">
+      {/* Header Status Bar (Sync States) */}
+      {(emailSyncState.status === 'success' || emailSyncState.status === 'error' || calendarSyncState.status === 'success' || calendarSyncState.status === 'error') && (
+        <div className="mb-6 space-y-2">
+          {emailSyncState.status === 'success' && (
+            <div className="p-3 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-md flex items-center justify-between">
+              <p className="text-xs text-slate-700 dark:text-slate-350 font-medium">Email Sync Success: {emailSyncState.message}</p>
+              <button onClick={() => setEmailSyncState({ status: 'idle', message: null })} className="text-slate-500 hover:text-slate-700"><X className="h-3.5 w-3.5" /></button>
+            </div>
+          )}
+          {emailSyncState.status === 'error' && (
+            <div className="p-3 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-md flex items-center justify-between">
+              <p className="text-xs text-slate-650 dark:text-slate-350 font-medium">Email Sync Error: {emailSyncState.message}</p>
+              <button onClick={() => setEmailSyncState({ status: 'idle', message: null })} className="text-slate-500 hover:text-slate-700"><X className="h-3.5 w-3.5" /></button>
+            </div>
+          )}
+          {calendarSyncState.status === 'success' && (
+            <div className="p-3 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-md flex items-center justify-between">
+              <p className="text-xs text-slate-700 dark:text-slate-350 font-medium">Calendar Sync Success: {calendarSyncState.message}</p>
+              <button onClick={() => setCalendarSyncState({ status: 'idle', message: null })} className="text-slate-500 hover:text-slate-700"><X className="h-3.5 w-3.5" /></button>
+            </div>
+          )}
+          {calendarSyncState.status === 'error' && (
+            <div className="p-3 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-md flex items-center justify-between">
+              <p className="text-xs text-slate-650 dark:text-slate-350 font-medium">Calendar Sync Error: {calendarSyncState.message}</p>
+              <button onClick={() => setCalendarSyncState({ status: 'idle', message: null })} className="text-slate-500 hover:text-slate-700"><X className="h-3.5 w-3.5" /></button>
+            </div>
           )}
         </div>
-      </div>
-
-      {/* Sync Status Notifications */}
-      {emailSyncState.status === 'success' && (
-        <div className="mb-4 p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/50 rounded-lg flex items-center justify-between">
-          <p className="text-sm text-emerald-800 dark:text-emerald-300 font-medium">✓ Email Sync Success: {emailSyncState.message}</p>
-          <button onClick={() => setEmailSyncState({ status: 'idle', message: null })} className="text-emerald-800 hover:opacity-75"><X className="h-4 w-4" /></button>
-        </div>
-      )}
-      {emailSyncState.status === 'error' && (
-        <div className="mb-4 p-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 rounded-lg flex items-center justify-between">
-          <p className="text-sm text-red-800 dark:text-red-300 font-medium">✗ Email Sync Error: {emailSyncState.message}</p>
-          <button onClick={() => setEmailSyncState({ status: 'idle', message: null })} className="text-red-800 hover:opacity-75"><X className="h-4 w-4" /></button>
-        </div>
-      )}
-      {calendarSyncState.status === 'success' && (
-        <div className="mb-4 p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/50 rounded-lg flex items-center justify-between">
-          <p className="text-sm text-emerald-800 dark:text-emerald-300 font-medium">✓ Calendar Sync Success: {calendarSyncState.message}</p>
-          <button onClick={() => setCalendarSyncState({ status: 'idle', message: null })} className="text-emerald-800 hover:opacity-75"><X className="h-4 w-4" /></button>
-        </div>
-      )}
-      {calendarSyncState.status === 'error' && (
-        <div className="mb-4 p-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 rounded-lg flex items-center justify-between">
-          <p className="text-sm text-red-800 dark:text-red-300 font-medium">✗ Calendar Sync Error: {calendarSyncState.message}</p>
-          <button onClick={() => setCalendarSyncState({ status: 'idle', message: null })} className="text-red-800 hover:opacity-75"><X className="h-4 w-4" /></button>
-        </div>
       )}
 
-      {/* Stats Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-xl flex items-center justify-between shadow-sm">
-          <div>
-            <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Total commitments</p>
-            <h3 className="text-2xl font-bold mt-1 text-slate-900 dark:text-white">{commitments.length}</h3>
-          </div>
-          <div className="h-10 w-10 rounded-lg bg-blue-50 dark:bg-blue-950/50 flex items-center justify-center">
-            <CheckCircle className="h-5 w-5 text-blue-500" />
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-xl flex items-center justify-between shadow-sm">
-          <div>
-            <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Active Commitments</p>
-            <h3 className="text-2xl font-bold mt-1 text-slate-900 dark:text-white">{activeCount}</h3>
-          </div>
-          <div className="h-10 w-10 rounded-lg bg-amber-50 dark:bg-amber-950/50 flex items-center justify-center">
-            <Target className="h-5 w-5 text-amber-500" />
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-xl flex items-center justify-between shadow-sm">
-          <div>
-            <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Completed Task Load</p>
-            <h3 className="text-2xl font-bold mt-1 text-slate-900 dark:text-white">{completedCount}</h3>
-          </div>
-          <div className="h-10 w-10 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 flex items-center justify-center">
-            <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-xl flex items-center justify-between shadow-sm">
-          <div>
-            <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Critical Risk Tasks</p>
-            <h3 className="text-2xl font-bold mt-1 text-slate-900 dark:text-white">{criticalCount}</h3>
-          </div>
-          <div className="h-10 w-10 rounded-lg bg-rose-50 dark:bg-rose-950/50 flex items-center justify-center">
-            <ShieldAlert className="h-5 w-5 text-rose-500" />
-          </div>
-        </div>
-      </div>
-
-      {/* Future Outlook Section */}
+      {/* Main Tab Render: Dashboard (Memory Bank) */}
       {tab === 'dashboard' && (
-        <FutureOutlook
-          data={simulationData}
-          loading={simulationLoading}
-          error={simulationError}
-          onRetry={fetchSimulation}
-        />
-      )}
-
-      {/* Embedded AI Insights Panel */}
-      {tab === 'dashboard' && (
-        <div className="bg-gradient-to-r from-blue-50/50 to-indigo-50/50 dark:from-blue-950/20 dark:to-indigo-950/20 border border-blue-100 dark:border-blue-900/50 rounded-2xl p-6 mb-6">
-          <div className="flex items-center gap-2.5 mb-5 border-b border-blue-100 dark:border-blue-900 pb-3">
-            <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md shadow-blue-500/10">
-              <BrainCircuit className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                AI Time Intelligence Engine
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Automated scheduling risks and productivity optimizations</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-            {/* Risk Commitments */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-xl shadow-sm">
-              <h4 className="text-xs font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <ShieldAlert className="h-4 w-4" /> Highest Risk Commitments
-              </h4>
-              {highestRiskCommitments.length > 0 ? (
-                <ul className="space-y-2">
-                  {highestRiskCommitments.map(c => (
-                    <li key={c.id} className="text-xs border-b border-slate-100 dark:border-slate-800 pb-1.5 last:border-0 last:pb-0">
-                      <p className="font-semibold text-slate-800 dark:text-slate-200 line-clamp-1">{c.title}</p>
-                      <p className="text-slate-500 mt-0.5">Risk Score: <span className="font-bold text-rose-500">{c.riskScore}</span></p>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-xs text-slate-500 dark:text-slate-400">No high-risk commitments active.</p>
-              )}
-            </div>
-
-            {/* Upcoming Deadlines */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-xl shadow-sm">
-              <h4 className="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <Clock className="h-4 w-4" /> Upcoming Deadlines
-              </h4>
-              {upcomingDeadlines.length > 0 ? (
-                <ul className="space-y-2">
-                  {upcomingDeadlines.map(c => (
-                    <li key={c.id} className="text-xs border-b border-slate-100 dark:border-slate-800 pb-1.5 last:border-0 last:pb-0">
-                      <p className="font-semibold text-slate-800 dark:text-slate-200 line-clamp-1">{c.title}</p>
-                      <p className="text-slate-500 mt-0.5">Due: <span className="font-medium text-amber-600 dark:text-amber-400">{new Date(c.deadline!).toLocaleDateString(undefined, {month: 'short', day: 'numeric'})}</span></p>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-xs text-slate-500 dark:text-slate-400">No deadlines in the next 3 days.</p>
-              )}
-            </div>
-
-            {/* Ignored / Discovered */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-xl shadow-sm">
-              <h4 className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <CalendarDays className="h-4 w-4" /> Ignored Discovered Items
-              </h4>
-              {ignoredCommitments.length > 0 ? (
-                <ul className="space-y-2">
-                  {ignoredCommitments.map(c => (
-                    <li key={c.id} className="text-xs border-b border-slate-100 dark:border-slate-800 pb-1.5 last:border-0 last:pb-0">
-                      <p className="font-semibold text-slate-800 dark:text-slate-200 line-clamp-1">{c.title}</p>
-                      <p className="text-slate-500 mt-0.5">Discovered: <span className="font-medium text-blue-500">{new Date(c.createdAt).toLocaleDateString(undefined, {month: 'short', day: 'numeric'})}</span></p>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-xs text-slate-500 dark:text-slate-400">No ignored discovery items.</p>
-              )}
-            </div>
-
-            {/* Risk Breakdown & AI Recommendations */}
-            <div
-              onClick={() => setIsAIInsightsOpen(true)}
-              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-xl shadow-sm flex flex-col justify-between cursor-pointer hover:border-indigo-400 hover:shadow-md transition-all group"
-            >
-              <div>
-                <h4 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <Sparkles className="h-4 w-4" /> AI Recommendations
-                </h4>
-                {insights.length > 0 ? (
-                  <>
-                    <p className="text-xs text-slate-700 dark:text-slate-300 font-medium italic line-clamp-2">
-                      &ldquo;{insights[0].description}&rdquo;
-                    </p>
-                    <span className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold mt-2 inline-flex items-center gap-0.5 group-hover:underline">
-                      View all {insights.length} insights <ChevronRight className="h-3 w-3" />
-                    </span>
-                  </>
-                ) : (
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Keep syncing emails to get automated AI tips.</p>
-                )}
-              </div>
-              <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-                <div className="flex items-center justify-between text-[10px] font-semibold text-slate-500">
-                  <span>CRITICAL RISK STATUS</span>
-                  <span className="text-rose-500">{criticalCount} Tasks</span>
-                </div>
-                <div className="w-full bg-slate-100 dark:bg-slate-850 h-1.5 rounded-full mt-1 overflow-hidden">
-                  <div
-                    className="bg-rose-500 h-1.5 rounded-full transition-all duration-500"
-                    style={{ width: `${Math.min(100, (criticalCount / (commitments.length || 1)) * 100)}%` }}
-                  ></div>
+        <div className="flex-1 flex flex-col">
+          {/* Conditional view: Context Detail Split View vs Memory Bank List */}
+          {selectedContextId ? (
+            <div className="flex-1 flex flex-col space-y-6">
+              {/* Back breadcrumb and Actions */}
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800/80 pb-4">
+                <button
+                  onClick={() => setSelectedContextId(null)}
+                  className="flex items-center gap-1.5 text-xs text-slate-450 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-350 transition-colors font-medium cursor-pointer"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Memory Bank
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={async () => {
+                      if (confirm('Mark this commitment as completed?')) {
+                        try {
+                          const res = await fetch(`/api/commitments/${selectedContextId}`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ status: 'COMPLETED' }),
+                          })
+                          if (res.ok) {
+                            setSelectedContextId(null)
+                            fetchData()
+                          }
+                        } catch (err) {
+                          console.error(err)
+                        }
+                      }
+                    }}
+                    className="px-3 py-1.5 text-xs border border-slate-200 dark:border-slate-850 hover:bg-slate-100 dark:hover:bg-slate-900 rounded-md text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+                  >
+                    Mark completed
+                  </button>
                 </div>
               </div>
+
+              {contextLoading || !selectedContext ? (
+                <div className="flex-1 flex items-center justify-center py-20">
+                  <div className="text-center">
+                    <div className="inline-block h-8 w-8 animate-spin rounded-full border-2 border-solid border-slate-300 dark:border-slate-800 border-r-transparent"></div>
+                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Restoring continuity state...</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 flex-1 py-4">
+                  {/* Left Panel: The State (7 cols) */}
+                  <div className="lg:col-span-7 space-y-10">
+                    <div className="flex flex-wrap items-center gap-10 border-b border-slate-200/60 dark:border-slate-850 pb-8">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2">STATUS</p>
+                        <span className="text-xs font-semibold px-2.5 py-1 bg-slate-100/60 dark:bg-slate-900/65 border border-slate-200 dark:border-slate-800/80 rounded text-slate-700 dark:text-slate-300">
+                          {selectedContext.status === 'AT_RISK' ? 'At Risk' : selectedContext.status === 'ACTIVE' ? 'In Progress' : 'Proposed'}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2">LAST ACTIVE</p>
+                        <span className="text-sm text-slate-700 dark:text-slate-300 font-light">
+                          {formatLastActive(selectedContext.lastActivity || selectedContext.updatedAt)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-450 dark:text-slate-500">WHERE YOU LEFT OFF</p>
+                      <h2 className="text-3xl font-light text-slate-900 dark:text-slate-100 leading-relaxed tracking-tight max-w-2xl">
+                        {selectedContext.description || "No content summary extracted. Start by adding notes or sync connected emails to analyze where you left off."}
+                      </h2>
+                    </div>
+
+                    <div className="space-y-3">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-450 dark:text-slate-500">LAST THING DONE</p>
+                      <div className="flex items-center gap-3.5 text-sm text-slate-700 dark:text-slate-300">
+                        <div className="h-5 w-5 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 flex items-center justify-center text-slate-450 dark:text-slate-500 font-bold shrink-0">
+                          ✓
+                        </div>
+                        <span className="font-light">
+                          {selectedContext.lastActivity ? 'Updated details and synchronised task state' : 'Identified obligation from connection source'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-450 dark:text-slate-555 font-semibold">NEXT RECOMMENDED STEP</p>
+                      <div className="p-5 rounded-xl bg-slate-100/40 dark:bg-slate-900/20 border border-slate-200 dark:border-slate-850 max-w-xl">
+                        <p className="text-sm font-medium text-slate-850 dark:text-slate-255 leading-relaxed">
+                          {selectedContext.actionPlans && selectedContext.actionPlans.length > 0 
+                            ? selectedContext.actionPlans[0].planContent 
+                            : selectedContext.priority === 'CRITICAL' || selectedContext.priority === 'HIGH'
+                              ? 'Flagged priority constraint. Address deadlines and sync with connected accounts to avoid scheduling delays.'
+                              : 'Review existing brief and update timeline details to advance progress.'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Panel: The Metadata Box (5 cols) */}
+                  <div className="lg:col-span-5 space-y-6">
+                    {/* AI Continuity Recommendation card */}
+                    <div className="p-6 rounded-xl bg-slate-100/30 dark:bg-slate-900/15 border border-slate-200/80 dark:border-slate-855/80 shadow-sm leading-relaxed">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-3.5">AI Continuity Recommendation</p>
+                      <p className="text-sm text-slate-700 dark:text-slate-350 font-light">
+                        {selectedContext.aiSummary || "Continuity check: Review recent interactions. Consider scheduling 15 minutes to organize notes and set milestones for upcoming deliverables."}
+                      </p>
+                    </div>
+
+                    {/* Estimated Time */}
+                    <div className="p-6 rounded-xl border border-slate-200 dark:border-slate-850 bg-white dark:bg-slate-900/40 shadow-sm flex items-center justify-between">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-555">Estimated Time</p>
+                        <p className="text-xl font-medium mt-1 text-slate-900 dark:text-slate-200">
+                          {selectedContext.estimatedEffort ? `${selectedContext.estimatedEffort} minutes` : '45 minutes (Default)'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Source Connected tracking indicator */}
+                    <div className="p-6 rounded-xl border border-slate-200 dark:border-slate-850 bg-white dark:bg-slate-900/40 shadow-sm">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2.5">Source Connected</p>
+                      <div className="flex items-center gap-2.5 text-xs text-slate-555 dark:text-slate-400 mt-1">
+                        <span className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-700"></span>
+                        <span className="font-light truncate">
+                          {selectedContext.sources && selectedContext.sources.length > 0 
+                            ? `Extracted from Gmail: "${selectedContext.sources[0].sourceReference || 'No Subject'}"`
+                            : 'Extracted from ChatGPT Conversation'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        </div>
-      )}
+          ) : (
+            <>
+              {/* Layout Header */}
+              <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6 mb-10 border-b border-slate-200/80 dark:border-slate-800 pb-6">
+                <div>
+                  <h1 className="text-4xl font-extralight tracking-tight text-slate-900 dark:text-slate-100 leading-tight">
+                    Welcome back, <span className="font-normal text-slate-950 dark:text-white">Tanishka</span>
+                  </h1>
+                  <p className="text-sm text-slate-400 dark:text-slate-500 font-light mt-2 tracking-wide">
+                    You have <span className="text-slate-600 dark:text-slate-450 font-medium">{activeCount + contexts.length} active contexts</span>
+                  </p>
+                </div>
 
-      {/* Main Splits Views based on url query */}
-      {tab === 'dashboard' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1">
-          {/* Commitments Ledger Column */}
-          <div className="lg:col-span-4 h-full">
-            <CommitmentsLedger commitments={commitments} onRefresh={fetchData} />
-          </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* New Commitment Button */}
+                  <button
+                    onClick={() => setIsNewCommitmentOpen(true)}
+                    className="flex items-center gap-2 px-4 py-2 border border-transparent bg-slate-900 hover:bg-slate-850 text-white dark:bg-slate-100 dark:hover:bg-slate-205 dark:text-slate-955 rounded-lg text-xs font-semibold shadow-sm transition-all cursor-pointer"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    New Commitment
+                  </button>
 
-          {/* Calendar Unified View Column */}
-          <div className="lg:col-span-5 h-full">
-            <CalendarView events={unifiedEvents} />
-          </div>
+                  {!hasGmailConnection ? (
+                    <button
+                      onClick={() => router.push('/connections')}
+                      className="flex items-center gap-2 px-4 py-2 bg-slate-105 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 rounded-lg hover:bg-slate-200/50 transition-colors text-xs font-semibold cursor-pointer"
+                    >
+                      <AlertTriangle className="h-3.5 w-3.5 text-slate-400" />
+                      Connect Gmail
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={syncEmails}
+                        disabled={emailSyncState.status === 'syncing'}
+                        className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 disabled:opacity-50 rounded-lg transition-all text-xs font-semibold cursor-pointer"
+                      >
+                        {emailSyncState.status === 'syncing' ? (
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Mail className="h-3.5 w-3.5 text-slate-400" />
+                        )}
+                        Sync Emails
+                      </button>
 
-          {/* Notification Tray Column */}
-          <div className="lg:col-span-3 h-full">
-            <NotificationTray
-              notifications={clientNotifications}
-              onDismiss={dismissNotification}
-              onMarkAllRead={markAllNotificationsRead}
-              onClearAll={clearAllNotifications}
-            />
-          </div>
+                      <button
+                        onClick={syncCalendar}
+                        disabled={calendarSyncState.status === 'syncing'}
+                        className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-850 dark:text-slate-200 disabled:opacity-50 rounded-lg transition-all text-xs font-semibold cursor-pointer"
+                      >
+                        {calendarSyncState.status === 'syncing' ? (
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                        )}
+                        Sync Calendar
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Active Contexts Section */}
+              {contextsLoading ? (
+                <div className="mb-12 py-6">
+                  <p className="text-xs text-slate-550 dark:text-slate-450 font-light">Loading active contexts...</p>
+                </div>
+              ) : contexts.length > 0 ? (
+                <div className="mb-12 max-w-5xl">
+                  <h2 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-5">
+                    ACTIVE CONTEXTS ({contexts.length})
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                    {contexts.map((ctx) => (
+                      <ContextCard key={ctx.id} {...ctx} />
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="mb-12 p-6 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/10 max-w-3xl">
+                  <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">No active contexts yet</h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-4">
+                    Install the ChronoAI Chrome extension and use ChatGPT, Claude, or Gemini — your active contexts and progress checkpoints will sync here automatically.
+                  </p>
+                  <a
+                    href="/auth/extension"
+                    className="inline-flex items-center gap-1.5 text-xs text-indigo-500 hover:text-indigo-400 font-semibold transition-colors"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Connect Extension <ChevronRight className="h-3 w-3" />
+                  </a>
+                </div>
+              )}
+
+              {/* 4-Category List Layout (Memory Bank) */}
+              <div className="space-y-10 flex-1 max-w-5xl">
+                {[
+                  {
+                    title: '🔥 URGENT',
+                    items: commitments.filter(
+                      c => (c.status === 'ACTIVE' || c.status === 'AT_RISK' || c.status === 'DISCOVERED') &&
+                      (c.priority === 'CRITICAL' || c.priority === 'HIGH' || c.status === 'AT_RISK')
+                    ),
+                  },
+                  {
+                    title: '📚 LEARNING',
+                    items: commitments.filter(
+                      c => (c.status === 'ACTIVE' || c.status === 'AT_RISK' || c.status === 'DISCOVERED') &&
+                      !(c.priority === 'CRITICAL' || c.priority === 'HIGH' || c.status === 'AT_RISK') &&
+                      c.category === 'ACADEMIC'
+                    ),
+                  },
+                  {
+                    title: '💻 PROJECTS',
+                    items: commitments.filter(
+                      c => (c.status === 'ACTIVE' || c.status === 'AT_RISK' || c.status === 'DISCOVERED') &&
+                      !(c.priority === 'CRITICAL' || c.priority === 'HIGH' || c.status === 'AT_RISK') &&
+                      c.category === 'CAREER'
+                    ),
+                  },
+                  {
+                    title: '📬 PERSONAL',
+                    items: commitments.filter(
+                      c => (c.status === 'ACTIVE' || c.status === 'AT_RISK' || c.status === 'DISCOVERED') &&
+                      !(c.priority === 'CRITICAL' || c.priority === 'HIGH' || c.status === 'AT_RISK') &&
+                      (c.category === 'PERSONAL' || c.category === 'FINANCE')
+                    ),
+                  },
+                ].map((category) => (
+                  <div key={category.title} className="space-y-4">
+                    <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                      {category.title}
+                      <span className="text-[10px] font-normal lowercase text-slate-400">
+                        ({category.items.length})
+                      </span>
+                    </h3>
+                    
+                    {category.items.length > 0 ? (
+                      <div className="grid grid-cols-1 gap-2.5">
+                        {category.items.map((item) => (
+                          <button
+                            key={item.id}
+                            onClick={() => setSelectedContextId(item.id)}
+                            className="w-full flex items-center justify-between py-3.5 px-5 rounded-md border border-slate-200/70 dark:border-slate-850 bg-white dark:bg-slate-900/35 hover:bg-slate-50/50 dark:hover:bg-slate-900 hover:border-slate-350 dark:hover:border-slate-750 transition-all text-left group cursor-pointer"
+                          >
+                            <div className="flex items-center gap-3">
+                              <span className="text-sm font-medium text-slate-850 dark:text-slate-200 group-hover:text-slate-950 dark:group-hover:text-white transition-colors">
+                                {item.title}
+                              </span>
+                              {item.status === 'AT_RISK' && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded border border-amber-250/20 bg-amber-50/40 text-amber-600 dark:bg-amber-950/20 dark:text-amber-300">
+                                  at risk
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-xs text-slate-400 dark:text-slate-550 group-hover:text-slate-600 dark:group-hover:text-slate-450 font-light flex items-center gap-2 transition-colors">
+                              {item.deadline ? new Date(item.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'No deadline'}
+                              <ChevronRight className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400 dark:text-slate-600 italic pl-1 font-light">No active items</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 

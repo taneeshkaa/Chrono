@@ -19,13 +19,15 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  accounts      Account[]
-  sessions      Session[]
-  commitments   Commitment[]
-  notifications Notification[]
-  activityLogs  ActivityLog[]
-  chatMessages  ChatMessage[]
-  connections Connection[]
+  accounts              Account[]
+  sessions              Session[]
+  commitments           Commitment[]
+  notifications         Notification[]
+  activityLogs          ActivityLog[]
+  chatMessages          ChatMessage[]
+  connections           Connection[]
+  conversationSources   ConversationSource[]
+  contextMemories       ContextMemory[]
 }
 
 model Commitment {
@@ -224,4 +226,58 @@ model Connection {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
+}
+
+// ─── Browser Extension Pipeline ───────────────────────────────────
+
+enum ConversationPlatform {
+  CHATGPT
+  CLAUDE
+  GEMINI
+}
+
+enum ContextStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+model ConversationSource {
+  id                     String               @id @default(cuid())
+  userId                 String
+  source                 ConversationPlatform
+  externalConversationId String?
+  title                  String
+  summary                String?
+  rawData                Json
+  processed              Boolean              @default(false)
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([source])
+  @@index([processed])
+}
+
+model ContextMemory {
+  id             String        @id @default(cuid())
+  userId         String
+  contextName    String
+  source         String
+  status         ContextStatus @default(ACTIVE)
+  completed      Json          @default("[]")
+  lastCheckpoint String?
+  nextAction     String?
+  estimatedTime  Int?
+  priority       Int           @default(0)
+  lastWorkedAt   DateTime?
+  summary        String?
+  updatedAt      DateTime      @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
 }

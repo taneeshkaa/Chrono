@@ -142,6 +142,35 @@ async function getOwnedCommitment(id: string, userId: string) {
   })
 }
 
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const session = await auth()
+
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const { id } = await params
+  const commitment = await prisma.commitment.findFirst({
+    where: {
+      id,
+      userId: session.user.id,
+    },
+    include: {
+      sources: true,
+      actionPlans: true,
+    },
+  })
+
+  if (!commitment) {
+    return NextResponse.json({ error: 'Commitment not found' }, { status: 404 })
+  }
+
+  return NextResponse.json(commitment)
+}
+
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
