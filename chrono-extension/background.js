@@ -111,6 +111,8 @@ async function handleSendConversation(data) {
       body: JSON.stringify(data),
     });
 
+    console.log("[ChronoAI] POST response status:", response.status);
+
     if (response.ok) {
       await writeStorage({ lastSync: Date.now() });
     } else {

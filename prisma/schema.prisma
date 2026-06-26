@@ -251,6 +251,7 @@ model ConversationSource {
   summary                String?
   rawData                Json
   processed              Boolean              @default(false)
+  ignoredContextName     String?
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @updatedAt
 
@@ -259,6 +260,7 @@ model ConversationSource {
   @@index([userId])
   @@index([source])
   @@index([processed])
+  @@index([ignoredContextName])
 }
 
 model ContextMemory {
@@ -274,10 +276,13 @@ model ContextMemory {
   priority       Int           @default(0)
   lastWorkedAt   DateTime?
   summary        String?
+  deleted        Boolean       @default(false)
+  deletedAt      DateTime?
   updatedAt      DateTime      @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([status])
+  @@index([deleted])
 }

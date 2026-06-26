@@ -1,7 +1,7 @@
 'use client'
 
-import { Search, Bell, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
-import { useState, useEffect, useRef } from 'react'
+import { CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
+import { useState, useEffect } from 'react'
 
 type ConnectionStatus = {
   connected: boolean
@@ -15,7 +15,6 @@ type UserInfo = {
 }
 
 export default function GlobalNav() {
-  const searchRef = useRef<HTMLInputElement>(null)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({ connected: false, count: 0 })
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null)
   const [loading, setLoading] = useState(true)
@@ -79,28 +78,10 @@ export default function GlobalNav() {
           </span>
         </div>
 
-        {/* Global Search Command Bar */}
-        <div className="flex-1 flex justify-center">
-          <div className="relative w-full max-w-2xl">
-            <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
-              <Search className="h-4 w-4 text-slate-400" />
-            </div>
-            <input
-              ref={searchRef}
-              type="text"
-              placeholder="Search or type a command... ⌘K"
-              suppressHydrationWarning
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-            />
-            <div className="absolute inset-y-0 right-3 flex items-center">
-              <kbd className="px-1.5 py-0.5 text-xs bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-500 dark:text-slate-400">
-                ⌘K
-              </kbd>
-            </div>
-          </div>
-        </div>
+        {/* Spacer to push Right Section to the far right */}
+        <div className="flex-1" />
 
-        {/* Right Section - Sync Status & Notifications */}
+        {/* Right Section - Sync Status & Avatar */}
         <div className="flex items-center space-x-4">
           {/* Sync Status */}
           {mounted ? (
@@ -135,13 +116,6 @@ export default function GlobalNav() {
               <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Checking...</span>
             </div>
           )}
-
-
-          {/* Notifications Bell */}
-          <button className="relative p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" suppressHydrationWarning>
-            <Bell className="h-5 w-5 text-slate-600 dark:text-slate-400" />
-            <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-red-500 rounded-full"></span>
-          </button>
 
           {/* User Avatar */}
           <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center">

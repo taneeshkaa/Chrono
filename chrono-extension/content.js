@@ -11,6 +11,8 @@
 (function () {
   "use strict";
 
+  console.log("[ChronoAI] Content script loaded on:", window.location.href);
+
   // ─── Constants ────────────────────────────────────────────────
 
   var DEBOUNCE_MS = 3000;
@@ -311,6 +313,7 @@
   function extractAndSend() {
     try {
       var messages = extractMessages();
+      console.log("[ChronoAI] Extracting messages, found:", messages.length);
 
       // Must have at least MIN_MESSAGES (1 user + 1 assistant)
       if (messages.length < MIN_MESSAGES) return;
@@ -330,6 +333,8 @@
         title: getTitle(),
         messages: messages,
       };
+
+      console.log("[ChronoAI] Sending conversation:", payload.title);
 
       chrome.runtime.sendMessage(
         { type: "SEND_CONVERSATION", data: payload },
@@ -367,6 +372,10 @@
     setInterval(extractAndSend, 10000);
   }
 
+  setTimeout(function () {
+    extractAndSend();
+  }, 2000);
+
   // ─── SPA Navigation Detection ────────────────────────────────
 
   // Detect URL changes in single-page apps (ChatGPT, Claude, Gemini are all SPAs)
@@ -403,7 +412,4 @@
     setInterval(onNavigation, 2000);
   }
 
-  // ─── Initial extraction after page settles ────────────────────
-
-  setTimeout(extractAndSend, 5000);
 })();

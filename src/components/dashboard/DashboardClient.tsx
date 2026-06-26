@@ -79,6 +79,7 @@ export default function DashboardClient({ user }: Props) {
   const [hasGmailConnection, setHasGmailConnection] = useState(false)
   const [emailSyncState, setEmailSyncState] = useState<SyncState>({ status: 'idle', message: null })
   const [calendarSyncState, setCalendarSyncState] = useState<SyncState>({ status: 'idle', message: null })
+  const [isContextSyncing, setIsContextSyncing] = useState(false)
 
   // Simulation Engine states
   const [simulationData, setSimulationData] = useState<SimulationResult | null>(null)
@@ -88,13 +89,11 @@ export default function DashboardClient({ user }: Props) {
   // New commitment modal states
   const [isNewCommitmentOpen, setIsNewCommitmentOpen] = useState(false)
   const [isAIInsightsOpen, setIsAIInsightsOpen] = useState(false)
+  const [isSubmittingCommitment, setIsSubmittingCommitment] = useState(false)
   const [newCommitmentForm, setNewCommitmentForm] = useState({
     title: '',
     description: '',
-    category: 'PERSONAL',
-    priority: 'MEDIUM',
-    deadline: '',
-    estimatedEffort: ''
+    deadline: ''
   })
 
   // Settings mock state forSettings panel
@@ -279,32 +278,35 @@ export default function DashboardClient({ user }: Props) {
   // Create new commitment form submission
   const handleCreateCommitment = async (e: React.FormEvent) => {
     e.preventDefault()
+    setIsSubmittingCommitment(true)
     try {
-      const response = await fetch('/api/commitments', {
+      const response = await fetch('/api/commitments/analyze-new', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...newCommitmentForm,
-          estimatedEffort: newCommitmentForm.estimatedEffort ? parseInt(newCommitmentForm.estimatedEffort) : null
+          title: newCommitmentForm.title,
+          description: newCommitmentForm.description,
+          deadline: newCommitmentForm.deadline || null,
+          userId: user.id
         })
       })
 
       if (!response.ok) {
-        throw new Error('Failed to create commitment')
+        const errorData = await response.json()
+        throw new Error(errorData.error ?? 'Failed to analyze and create commitment')
       }
 
       setIsNewCommitmentOpen(false)
       setNewCommitmentForm({
         title: '',
         description: '',
-        category: 'PERSONAL',
-        priority: 'MEDIUM',
-        deadline: '',
-        estimatedEffort: ''
+        deadline: ''
       })
       await fetchData()
     } catch (err: any) {
       alert(err.message || 'Error creating commitment')
+    } finally {
+      setIsSubmittingCommitment(false)
     }
   }
 
@@ -357,6 +359,49 @@ export default function DashboardClient({ user }: Props) {
       })
     }
   }
+
+  // Sync Contexts from AI conversations
+  const syncContexts = async () => {
+    setIsContextSyncing(true)
+    try {
+      const response = await fetch('/api/ai/analyze-context', { method: 'POST' })
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error ?? 'AI context sync failed')
+      }
+
+      // Refresh contexts section without full page reload
+      const res = await fetch('/api/dashboard/contexts')
+      if (res.ok) {
+        const data = await res.json()
+        setContexts(data && Array.isArray(data.contexts) ? data.contexts : [])
+      }
+    } catch (error) {
+      console.error('Failed to sync contexts:', error)
+      alert(error instanceof Error ? error.message : 'AI context sync failed')
+    } finally {
+      setIsContextSyncing(false)
+    }
+  }
+
+  const handleDeleteContext = useCallback(async (contextId: string) => {
+    try {
+      const response = await fetch(`/api/dashboard/contexts/${contextId}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error ?? 'Failed to remove context')
+      }
+
+      setContexts((prev) => prev.filter((ctx) => ctx.id !== contextId))
+    } catch (error) {
+      console.error('Failed to delete context:', error)
+      alert(error instanceof Error ? error.message : 'Failed to remove context')
+      throw error
+    }
+  }, [])
 
   // Save Settings configuration
   const handleSaveSettings = (e: React.FormEvent) => {
@@ -689,31 +734,48 @@ export default function DashboardClient({ user }: Props) {
                 <div className="mb-12 py-6">
                   <p className="text-xs text-slate-550 dark:text-slate-450 font-light">Loading active contexts...</p>
                 </div>
-              ) : contexts.length > 0 ? (
-                <div className="mb-12 max-w-5xl">
-                  <h2 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-5">
-                    ACTIVE CONTEXTS ({contexts.length})
-                  </h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                    {contexts.map((ctx) => (
-                      <ContextCard key={ctx.id} {...ctx} />
-                    ))}
-                  </div>
-                </div>
               ) : (
-                <div className="mb-12 p-6 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/10 max-w-3xl">
-                  <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">No active contexts yet</h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-4">
-                    Install the ChronoAI Chrome extension and use ChatGPT, Claude, or Gemini — your active contexts and progress checkpoints will sync here automatically.
-                  </p>
-                  <a
-                    href="/auth/extension"
-                    className="inline-flex items-center gap-1.5 text-xs text-indigo-500 hover:text-indigo-400 font-semibold transition-colors"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Connect Extension <ChevronRight className="h-3 w-3" />
-                  </a>
+                <div className="mb-12 max-w-5xl">
+                  <div className="flex items-center gap-2.5 mb-5">
+                    <h2 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+                      ACTIVE CONTEXTS ({contexts.length})
+                    </h2>
+                    <button
+                      onClick={syncContexts}
+                      disabled={isContextSyncing}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-350 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 rounded transition-all cursor-pointer"
+                    >
+                      {isContextSyncing ? (
+                        <RefreshCw className="h-2.5 w-2.5 animate-spin" />
+                      ) : (
+                        <span>↻</span>
+                      )}
+                      Sync
+                    </button>
+                  </div>
+
+                  {contexts.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                      {contexts.map((ctx) => (
+                        <ContextCard key={ctx.id} {...ctx} onDelete={handleDeleteContext} />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="p-6 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/10 max-w-3xl">
+                      <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">No active contexts yet</h2>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-4">
+                        Install the ChronoAI Chrome extension and use ChatGPT, Claude, or Gemini — your active contexts and progress checkpoints will sync here automatically.
+                      </p>
+                      <a
+                        href="/auth/extension"
+                        className="inline-flex items-center gap-1.5 text-xs text-indigo-500 hover:text-indigo-400 font-semibold transition-colors"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Connect Extension <ChevronRight className="h-3 w-3" />
+                      </a>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -945,73 +1007,32 @@ export default function DashboardClient({ user }: Props) {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Category</label>
-                  <select
-                    value={newCommitmentForm.category}
-                    onChange={e => setNewCommitmentForm({ ...newCommitmentForm, category: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  >
-                    <option value="PERSONAL">Personal</option>
-                    <option value="ACADEMIC">Academic</option>
-                    <option value="CAREER">Career</option>
-                    <option value="FINANCE">Finance</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Priority</label>
-                  <select
-                    value={newCommitmentForm.priority}
-                    onChange={e => setNewCommitmentForm({ ...newCommitmentForm, priority: e.target.value as any })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  >
-                    <option value="LOW">Low</option>
-                    <option value="MEDIUM">Medium</option>
-                    <option value="HIGH">High</option>
-                    <option value="CRITICAL">Critical</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Deadline Date</label>
-                  <input
-                    type="datetime-local"
-                    value={newCommitmentForm.deadline}
-                    onChange={e => setNewCommitmentForm({ ...newCommitmentForm, deadline: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Est. Effort (Minutes)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    placeholder="e.g. 60"
-                    value={newCommitmentForm.estimatedEffort}
-                    onChange={e => setNewCommitmentForm({ ...newCommitmentForm, estimatedEffort: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  />
-                </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Deadline Date (Optional)</label>
+                <input
+                  type="datetime-local"
+                  value={newCommitmentForm.deadline}
+                  onChange={e => setNewCommitmentForm({ ...newCommitmentForm, deadline: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                />
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800 flex-shrink-0">
                 <button
                   type="button"
+                  disabled={isSubmittingCommitment}
                   onClick={() => setIsNewCommitmentOpen(false)}
-                  className="px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
+                  className="px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-sm cursor-pointer shadow-md transition-colors"
+                  disabled={isSubmittingCommitment}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-sm cursor-pointer shadow-md transition-colors disabled:opacity-50 flex items-center gap-1.5"
                 >
-                  Save Commitment
+                  {isSubmittingCommitment && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                  {isSubmittingCommitment ? 'Analyzing & Saving...' : 'Save Commitment'}
                 </button>
               </div>
             </form>

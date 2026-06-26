@@ -1,8 +1,10 @@
 'use client'
 
-import React from 'react'
+import React, { useState } from 'react'
+import { X } from 'lucide-react'
 
 interface ContextCardProps {
+  id: string
   contextName: string
   lastCheckpoint: string | null
   nextAction: string | null
@@ -10,31 +12,54 @@ interface ContextCardProps {
   summary: string | null
   source: string
   lastWorkedAt: string | Date | null
+  onDelete: (id: string) => Promise<void> | void
 }
 
 function getContextEmoji(name: string): string {
   const normalized = name.toLowerCase()
   if (
     normalized.includes('dsa') ||
-    normalized.includes('algo') ||
+    normalized.includes('algorithm') ||
     normalized.includes('leetcode') ||
-    normalized.includes('academic') ||
-    normalized.includes('study')
+    normalized.includes('coding') ||
+    normalized.includes('programming')
   ) {
     return '📚'
   }
   if (
-    normalized.includes('work') ||
+    normalized.includes('chronoai') ||
+    normalized.includes('dashboard') ||
+    normalized.includes('ui') ||
     normalized.includes('project') ||
+    normalized.includes('app') ||
+    normalized.includes('web')
+  ) {
+    return '💻'
+  }
+  if (
     normalized.includes('java') ||
     normalized.includes('python') ||
     normalized.includes('react') ||
     normalized.includes('next') ||
-    normalized.includes('code') ||
-    normalized.includes('dev') ||
-    normalized.includes('app')
+    normalized.includes('typescript') ||
+    normalized.includes('language')
   ) {
-    return '💻'
+    return '🖥️'
+  }
+  if (
+    normalized.includes('design') ||
+    normalized.includes('figma') ||
+    normalized.includes('ui/ux')
+  ) {
+    return '🎨'
+  }
+  if (
+    normalized.includes('personal') ||
+    normalized.includes('finance') ||
+    normalized.includes('bank') ||
+    normalized.includes('life')
+  ) {
+    return '🏠'
   }
   return '🧠'
 }
@@ -43,34 +68,55 @@ function formatRelativeTime(dateInput: string | Date | null): string {
   if (!dateInput) return 'Never'
   const date = typeof dateInput === 'string' ? new Date(dateInput) : dateInput
   const diff = Date.now() - date.getTime()
-  if (diff < 0) return 'Just now'
+  if (diff < 0) return 'just now'
 
   const seconds = Math.floor(diff / 1000)
   const minutes = Math.floor(seconds / 60)
   const hours = Math.floor(minutes / 60)
   const days = Math.floor(hours / 24)
 
-  if (seconds < 60) return 'Just now'
+  if (seconds < 60) return 'just now'
   if (minutes < 60) return `${minutes}m ago`
   if (hours < 24) return `${hours}h ago`
   return `${days}d ago`
 }
 
-function getPlatformBadgeStyle(source: string): { bg: string; text: string; label: string } {
+function getPlatformBadgeStyle(source: string): { bg: string; text: string; border: string; label: string } {
   const norm = source.toLowerCase()
   if (norm.includes('chatgpt')) {
-    return { bg: 'bg-emerald-500/10 border-emerald-500/20', text: 'text-emerald-400', label: 'ChatGPT' }
+    return {
+      bg: 'bg-green-500/10',
+      text: 'text-green-400',
+      border: 'border border-green-500/20',
+      label: 'ChatGPT',
+    }
   }
   if (norm.includes('claude')) {
-    return { bg: 'bg-amber-500/10 border-amber-500/20', text: 'text-amber-400', label: 'Claude' }
+    return {
+      bg: 'bg-orange-500/10',
+      text: 'text-orange-400',
+      border: 'border border-orange-500/20',
+      label: 'Claude',
+    }
   }
   if (norm.includes('gemini')) {
-    return { bg: 'bg-blue-500/10 border-blue-500/20', text: 'text-blue-400', label: 'Gemini' }
+    return {
+      bg: 'bg-blue-500/10',
+      text: 'text-blue-400',
+      border: 'border border-blue-500/20',
+      label: 'Gemini',
+    }
   }
-  return { bg: 'bg-slate-500/10 border-slate-500/20', text: 'text-slate-400', label: source }
+  return {
+    bg: 'bg-zinc-500/10',
+    text: 'text-zinc-400',
+    border: 'border border-zinc-500/20',
+    label: source,
+  }
 }
 
 export default function ContextCard({
+  id,
   contextName,
   lastCheckpoint,
   nextAction,
@@ -78,49 +124,103 @@ export default function ContextCard({
   summary,
   source,
   lastWorkedAt,
+  onDelete,
 }: ContextCardProps) {
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const emoji = getContextEmoji(contextName)
   const timeStr = formatRelativeTime(lastWorkedAt)
   const badge = getPlatformBadgeStyle(source)
 
+  const est = estimatedTime !== null ? estimatedTime : 45
+  const formattedTimeEstimate = est > 120
+    ? `⏱ ~${Math.round(est / 60)}h`
+    : `⏱ ~${est} min`
+
+  const confirmDelete = async () => {
+    setIsDeleting(true)
+    try {
+      await onDelete(id)
+    } finally {
+      setIsDeleting(false)
+      setIsConfirmingDelete(false)
+    }
+  }
+
   return (
-    <div className="bg-slate-900/40 border border-slate-800/80 backdrop-blur-sm rounded-xl p-5 hover:border-slate-700/60 transition-all flex flex-col justify-between h-full group">
+    <div className="relative bg-[#1a1a1a] border border-white/10 rounded-2xl p-5 hover:border-white/20 transition-all flex flex-col justify-between h-full group text-left">
       <div>
-        {/* Header */}
-        <div className="flex items-start justify-between gap-3 mb-4">
+        {/* Top Row */}
+        <div className="flex items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-2">
-            <span className="text-xl leading-none" role="img" aria-label="context icon">
+            <span className="text-2xl leading-none" role="img" aria-label="context icon">
               {emoji}
             </span>
-            <h3 className="font-semibold text-slate-100 group-hover:text-white transition-colors line-clamp-1">
+            <h3 className="font-semibold text-white text-lg line-clamp-1">
               {contextName}
             </h3>
           </div>
-          <span className={`text-[10px] px-2 py-0.5 rounded-full border font-mono tracking-wider font-semibold ${badge.bg} ${badge.text}`}>
-            {badge.label}
-          </span>
+          <div className="relative flex items-center gap-1.5">
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badge.bg} ${badge.text} ${badge.border}`}>
+              {badge.label}
+            </span>
+            <button
+              type="button"
+              aria-label={`Remove ${contextName} context`}
+              disabled={isDeleting}
+              onClick={() => setIsConfirmingDelete(true)}
+              className="inline-flex h-6 w-6 items-center justify-center rounded-full text-zinc-500 hover:bg-white/10 hover:text-white disabled:opacity-50 transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+
+            {isConfirmingDelete && (
+              <div className="absolute right-0 top-8 z-10 w-44 rounded-lg border border-white/10 bg-zinc-950 p-3 shadow-xl">
+                <p className="mb-2 text-xs font-medium text-zinc-200">Remove this context?</p>
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    disabled={isDeleting}
+                    onClick={() => setIsConfirmingDelete(false)}
+                    className="rounded px-2 py-1 text-xs text-zinc-400 hover:bg-white/10 hover:text-zinc-200 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isDeleting}
+                    onClick={confirmDelete}
+                    className="rounded bg-red-500/15 px-2 py-1 text-xs font-semibold text-red-300 hover:bg-red-500/25 disabled:opacity-50"
+                  >
+                    {isDeleting ? 'Removing...' : 'Yes'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Summary Description */}
         {summary && (
-          <p className="text-xs text-slate-400 dark:text-slate-400 line-clamp-2 mb-4 leading-relaxed">
+          <p className="text-xs text-zinc-450 dark:text-zinc-400 leading-relaxed mb-4 line-clamp-2">
             {summary}
           </p>
         )}
 
-        {/* State */}
-        <div className="space-y-2 mb-5">
+        {/* Middle Section */}
+        <div className="mt-4 space-y-3">
           {lastCheckpoint && (
-            <div className="text-xs">
-              <span className="text-slate-500 block mb-0.5">Last worked on</span>
-              <span className="text-slate-300 font-medium line-clamp-1">{lastCheckpoint}</span>
+            <div>
+              <span className="text-xs text-zinc-500 uppercase tracking-wide block">Last worked on</span>
+              <span className="text-sm text-zinc-300 mt-0.5 block break-words">
+                {lastCheckpoint}
+              </span>
             </div>
           )}
           {nextAction && (
-            <div className="text-xs">
-              <span className="text-slate-500 block mb-0.5">Next up</span>
-              <span className="text-slate-200 font-semibold line-clamp-1 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></span>
+            <div>
+              <span className="text-xs text-zinc-500 uppercase tracking-wide block">Next up</span>
+              <span className="text-sm text-white font-medium mt-0.5 block break-words">
                 {nextAction}
               </span>
             </div>
@@ -128,12 +228,12 @@ export default function ContextCard({
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between pt-3 border-t border-slate-800/50 mt-auto">
-        <span className="text-xs font-medium text-slate-500 bg-slate-800/20 px-2.5 py-1 rounded-md border border-slate-800/60">
-          ~{estimatedTime || 15} min
+      {/* Bottom Row */}
+      <div className="mt-4 pt-4 border-t border-white/5 flex items-center justify-between mt-auto">
+        <span className="text-xs text-zinc-500">
+          {formattedTimeEstimate}
         </span>
-        <span className="text-xs text-slate-500 dark:text-slate-500 font-mono">
+        <span className="text-xs text-zinc-500">
           {timeStr}
         </span>
       </div>

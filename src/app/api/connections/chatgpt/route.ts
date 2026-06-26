@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
+import { runAnalysis } from '@/lib/analyze-context'
 import { prisma } from '@/lib/prisma'
 import { verifyJwt } from '@/lib/jwt'
 import type { ConversationPlatform } from '@prisma/client'
@@ -110,17 +111,7 @@ export async function POST(request: Request) {
     }
 
     // Fire-and-forget: trigger context analysis
-    const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000'
-    fetch(`${baseUrl}/api/ai/analyze-context`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        cookie: request.headers.get('cookie') || '',
-        Authorization: request.headers.get('Authorization') || '',
-      },
-    }).catch((err) => {
-      console.error('Failed to trigger context analysis:', err)
-    })
+    runAnalysis(userId).catch(console.error)
 
     return NextResponse.json({
       success: true,
@@ -182,4 +173,3 @@ export async function GET() {
     )
   }
 }
-

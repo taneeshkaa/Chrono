@@ -18,6 +18,7 @@ export async function GET() {
       where: {
         userId,
         status: 'ACTIVE',
+        deleted: false,
       },
       orderBy: [
         { lastWorkedAt: { sort: 'desc', nulls: 'last' } },
