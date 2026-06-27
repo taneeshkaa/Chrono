@@ -28,6 +28,7 @@ model User {
   connections           Connection[]
   conversationSources   ConversationSource[]
   contextMemories       ContextMemory[]
+  roadmapCache          RoadmapCache?
 }
 
 model Commitment {
@@ -285,4 +286,16 @@ model ContextMemory {
   @@index([userId])
   @@index([status])
   @@index([deleted])
+}
+
+model RoadmapCache {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  result      Json
+  generatedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

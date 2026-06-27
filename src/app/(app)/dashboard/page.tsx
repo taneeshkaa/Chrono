@@ -2,6 +2,7 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import DashboardClient from '@/components/dashboard/DashboardClient'
 import { Suspense } from 'react'
+import { prisma } from '@/lib/prisma'
 
 export default async function DashboardPage() {
   const session = await auth()
@@ -9,6 +10,11 @@ export default async function DashboardPage() {
   if (!session?.user) {
     redirect('/login')
   }
+
+  const dbUser = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { timezone: true }
+  })
 
   return (
     <Suspense fallback={
@@ -25,6 +31,7 @@ export default async function DashboardPage() {
           name: session.user.name ?? null,
           email: session.user.email ?? null,
           image: session.user.image ?? null,
+          timezone: dbUser?.timezone ?? 'Asia/Kolkata',
         }}
       />
     </Suspense>

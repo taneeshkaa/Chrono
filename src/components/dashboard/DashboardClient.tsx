@@ -1,14 +1,16 @@
 'use client'
 
 import { useEffect, useState, useCallback, Suspense } from 'react'
-import { RefreshCw, Mail, Calendar, AlertTriangle, Plus, X, BarChart2, Bell, CheckCircle2, Trash2, CheckCircle, Settings as SettingsIcon, BrainCircuit, ShieldAlert, Sparkles, Clock, Target, CalendarDays, ChevronRight, ChevronLeft } from 'lucide-react'
+import { RefreshCw, Mail, Calendar, AlertTriangle, Plus, X, BarChart2, Bell, CheckCircle2, Trash2, CheckCircle, Settings as SettingsIcon, BrainCircuit, ShieldAlert, Sparkles, Clock, Target, CalendarDays, ChevronRight, ChevronLeft, ChevronDown, Map } from 'lucide-react'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { saveUserSettings } from '@/app/actions'
 import TodaysFocus from './TodaysFocus'
 import CommitmentsLedger from './CommitmentsLedger'
 import CalendarView from './CalendarView'
 import NotificationTray from './NotificationTray'
 import FutureOutlook from './FutureOutlook'
 import ContextCard from './ContextCard'
+import OverloadBanner from './OverloadBanner'
 import type { SimulationResult } from '@/types/simulation'
 
 type UserInfo = {
@@ -16,6 +18,39 @@ type UserInfo = {
   name: string | null
   email: string | null
   image: string | null
+  timezone?: string | null
+}
+
+type PriorityItem = {
+  id: string
+  type: 'commitment' | 'context'
+  title: string
+  action: string
+  estimatedTime: number
+  urgency: 'today' | 'this-week' | 'later'
+}
+
+type RoadmapDay = {
+  day: string
+  tasks: {
+    title: string
+    duration: number
+    type: 'commitment' | 'context'
+  }[]
+}
+
+type RoadmapData = {
+  overloaded: boolean
+  overloadMessage: string | null
+  postponeSuggestions: {
+    commitmentId: string
+    commitmentTitle: string
+    reason: string
+    suggestion: string
+  }[]
+  priorityList: PriorityItem[]
+  roadmap: RoadmapDay[]
+  generalAdvice: string
 }
 
 type Commitment = {
@@ -57,15 +92,44 @@ type SyncState = {
   status: 'idle' | 'syncing' | 'success' | 'error'
   message: string | null
 }
-
 type Props = {
   user: UserInfo
+}
+
+function formatRelativeTime(dateInput: string | Date | null): string {
+  if (!dateInput) return 'Never'
+  const date = typeof dateInput === 'string' ? new Date(dateInput) : dateInput
+  const diff = Date.now() - date.getTime()
+  if (diff < 0) return 'just now'
+
+  const seconds = Math.floor(diff / 1000)
+  const minutes = Math.floor(seconds / 60)
+  const hours = Math.floor(minutes / 60)
+  const days = Math.floor(hours / 24)
+
+  if (seconds < 60) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  if (hours < 24) return `${hours}h ago`
+  return `${days}d ago`
 }
 
 export default function DashboardClient({ user }: Props) {
   const searchParams = useSearchParams()
   const router = useRouter()
   const tab = searchParams?.get('tab') || 'dashboard'
+
+  // Roadmap state
+  const [roadmap, setRoadmap] = useState<RoadmapData | null>(null)
+  const [roadmapLoading, setRoadmapLoading] = useState(true)
+  const [roadmapExists, setRoadmapExists] = useState(false)
+  const [roadmapGeneratedAt, setRoadmapGeneratedAt] = useState<string | null>(null)
+  const [roadmapGenerating, setRoadmapGenerating] = useState(false)
+  const [roadmapCollapsed, setRoadmapCollapsed] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('chrono_roadmap_collapsed') === 'true'
+    }
+    return false
+  })
 
   const [commitments, setCommitments] = useState<Commitment[]>([])
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([])
@@ -96,9 +160,9 @@ export default function DashboardClient({ user }: Props) {
     deadline: ''
   })
 
-  // Settings mock state forSettings panel
+  // Settings state for Settings panel
   const [settingsForm, setSettingsForm] = useState({
-    timezone: 'Asia/Kolkata',
+    timezone: user.timezone || 'Asia/Kolkata',
     syncFrequency: '60',
     notifyLeadTime: '24'
   })
@@ -181,9 +245,53 @@ export default function DashboardClient({ user }: Props) {
     }
   }, [])
 
+  const fetchRoadmap = useCallback(async () => {
+    try {
+      const response = await fetch('/api/ai/roadmap')
+      const data = await response.json()
+
+      if (data.exists) {
+        setRoadmap(data.data)
+        setRoadmapExists(true)
+        setRoadmapGeneratedAt(data.generatedAt)
+      } else {
+        setRoadmapExists(false)
+        setRoadmap(null)
+      }
+    } catch (error) {
+      console.error('Failed to fetch roadmap:', error)
+    } finally {
+      setRoadmapLoading(false)
+    }
+  }, [])
+
+  const regenerateRoadmap = async () => {
+    setRoadmapGenerating(true)
+    try {
+      const response = await fetch('/api/ai/roadmap', {
+        method: 'POST',
+      })
+      const data = await response.json()
+
+      if (data.error) {
+        alert('Failed to generate roadmap: ' + data.error)
+      } else {
+        setRoadmap(data)
+        setRoadmapExists(true)
+        setRoadmapGeneratedAt(new Date().toISOString())
+      }
+    } catch (error) {
+      console.error('Failed to regenerate roadmap:', error)
+      alert('Failed to regenerate roadmap. Please try again.')
+    } finally {
+      setRoadmapGenerating(false)
+    }
+  }
+
   const fetchData = useCallback(async () => {
-    // Fire simulation fetch in background to avoid blocking other requests
+    // Fire simulation fetch and roadmap fetch in background
     fetchSimulation()
+    fetchRoadmap()
 
     try {
       const [commitmentsRes, eventsRes, notificationsRes, insightsRes, connectionsRes, contextsRes] = await Promise.all([
@@ -225,6 +333,36 @@ export default function DashboardClient({ user }: Props) {
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  // Save roadmap collapse state to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('chrono_roadmap_collapsed', roadmapCollapsed.toString())
+    }
+  }, [roadmapCollapsed])
+
+  // Helper functions for roadmap styling
+  const getUrgencyColor = (urgency: string) => {
+    switch (urgency) {
+      case 'today':
+        return 'border-l-4 border-l-rose-500 bg-rose-50 dark:bg-rose-900/20'
+      case 'this-week':
+        return 'border-l-4 border-l-amber-500 bg-amber-50 dark:bg-amber-900/20'
+      default:
+        return 'border-l-4 border-l-slate-300 bg-slate-50 dark:bg-slate-800'
+    }
+  }
+
+  const getUrgencyBadge = (urgency: string) => {
+    switch (urgency) {
+      case 'today':
+        return 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
+      case 'this-week':
+        return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+      default:
+        return 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
+    }
+  }
 
   // Sync client-side notification mapping whenever raw notifications or interaction histories change
   useEffect(() => {
@@ -404,13 +542,16 @@ export default function DashboardClient({ user }: Props) {
   }, [])
 
   // Save Settings configuration
-  const handleSaveSettings = (e: React.FormEvent) => {
+  const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault()
     setSettingsSaveStatus('Saving settings...')
-    setTimeout(() => {
+    try {
+      await saveUserSettings(settingsForm.timezone)
       setSettingsSaveStatus('Settings saved successfully!')
       setTimeout(() => setSettingsSaveStatus(null), 3000)
-    }, 800)
+    } catch (err: any) {
+      setSettingsSaveStatus('Failed to save settings: ' + (err.message || 'Unknown error'))
+    }
   }
 
   // Get today's focus - highest priority active commitment
@@ -729,129 +870,283 @@ export default function DashboardClient({ user }: Props) {
                 </div>
               </div>
 
-              {/* Active Contexts Section */}
-              {contextsLoading ? (
-                <div className="mb-12 py-6">
-                  <p className="text-xs text-slate-550 dark:text-slate-450 font-light">Loading active contexts...</p>
-                </div>
-              ) : (
-                <div className="mb-12 max-w-5xl">
-                  <div className="flex items-center gap-2.5 mb-5">
-                    <h2 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-                      ACTIVE CONTEXTS ({contexts.length})
-                    </h2>
-                    <button
-                      onClick={syncContexts}
-                      disabled={isContextSyncing}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-350 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 rounded transition-all cursor-pointer"
-                    >
-                      {isContextSyncing ? (
-                        <RefreshCw className="h-2.5 w-2.5 animate-spin" />
-                      ) : (
-                        <span>↻</span>
-                      )}
-                      Sync
-                    </button>
-                  </div>
-
-                  {contexts.length > 0 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                      {contexts.map((ctx) => (
-                        <ContextCard key={ctx.id} {...ctx} onDelete={handleDeleteContext} />
-                      ))}
+              {/* Two Column Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
+                
+                {/* Left Column (60% width) */}
+                <div className="lg:col-span-3 space-y-10">
+                  {/* Active Contexts Section */}
+                  {contextsLoading ? (
+                    <div className="py-6">
+                      <p className="text-xs text-slate-550 dark:text-slate-450 font-light">Loading active contexts...</p>
                     </div>
                   ) : (
-                    <div className="p-6 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/10 max-w-3xl">
-                      <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">No active contexts yet</h2>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-4">
-                        Install the ChronoAI Chrome extension and use ChatGPT, Claude, or Gemini — your active contexts and progress checkpoints will sync here automatically.
-                      </p>
-                      <a
-                        href="/auth/extension"
-                        className="inline-flex items-center gap-1.5 text-xs text-indigo-500 hover:text-indigo-400 font-semibold transition-colors"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        Connect Extension <ChevronRight className="h-3 w-3" />
-                      </a>
+                    <div className="max-w-5xl">
+                      <div className="flex items-center gap-2.5 mb-5">
+                        <h2 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+                          ACTIVE CONTEXTS ({contexts.length})
+                        </h2>
+                        <button
+                          onClick={syncContexts}
+                          disabled={isContextSyncing}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-350 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 rounded transition-all cursor-pointer"
+                        >
+                          {isContextSyncing ? (
+                            <RefreshCw className="h-2.5 w-2.5 animate-spin" />
+                          ) : (
+                            <span>↻</span>
+                          )}
+                          Sync
+                        </button>
+                      </div>
+
+                      {contexts.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                          {contexts.map((ctx) => (
+                            <ContextCard key={ctx.id} {...ctx} onDelete={handleDeleteContext} />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="p-6 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/10 max-w-3xl">
+                          <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">No active contexts yet</h2>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-4">
+                            Install the ChronoAI Chrome extension and use ChatGPT, Claude, or Gemini — your active contexts and progress checkpoints will sync here automatically.
+                          </p>
+                          <a
+                            href="/auth/extension"
+                            className="inline-flex items-center gap-1.5 text-xs text-indigo-500 hover:text-indigo-400 font-semibold transition-colors"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            Connect Extension <ChevronRight className="h-3 w-3" />
+                          </a>
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
-              )}
 
-              {/* 4-Category List Layout (Memory Bank) */}
-              <div className="space-y-10 flex-1 max-w-5xl">
-                {[
-                  {
-                    title: '🔥 URGENT',
-                    items: commitments.filter(
-                      c => (c.status === 'ACTIVE' || c.status === 'AT_RISK' || c.status === 'DISCOVERED') &&
-                      (c.priority === 'CRITICAL' || c.priority === 'HIGH' || c.status === 'AT_RISK')
-                    ),
-                  },
-                  {
-                    title: '📚 LEARNING',
-                    items: commitments.filter(
-                      c => (c.status === 'ACTIVE' || c.status === 'AT_RISK' || c.status === 'DISCOVERED') &&
-                      !(c.priority === 'CRITICAL' || c.priority === 'HIGH' || c.status === 'AT_RISK') &&
-                      c.category === 'ACADEMIC'
-                    ),
-                  },
-                  {
-                    title: '💻 PROJECTS',
-                    items: commitments.filter(
-                      c => (c.status === 'ACTIVE' || c.status === 'AT_RISK' || c.status === 'DISCOVERED') &&
-                      !(c.priority === 'CRITICAL' || c.priority === 'HIGH' || c.status === 'AT_RISK') &&
-                      c.category === 'CAREER'
-                    ),
-                  },
-                  {
-                    title: '📬 PERSONAL',
-                    items: commitments.filter(
-                      c => (c.status === 'ACTIVE' || c.status === 'AT_RISK' || c.status === 'DISCOVERED') &&
-                      !(c.priority === 'CRITICAL' || c.priority === 'HIGH' || c.status === 'AT_RISK') &&
-                      (c.category === 'PERSONAL' || c.category === 'FINANCE')
-                    ),
-                  },
-                ].map((category) => (
-                  <div key={category.title} className="space-y-4">
-                    <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
-                      {category.title}
-                      <span className="text-[10px] font-normal lowercase text-slate-400">
-                        ({category.items.length})
-                      </span>
-                    </h3>
-                    
-                    {category.items.length > 0 ? (
-                      <div className="grid grid-cols-1 gap-2.5">
-                        {category.items.map((item) => (
-                          <button
-                            key={item.id}
-                            onClick={() => setSelectedContextId(item.id)}
-                            className="w-full flex items-center justify-between py-3.5 px-5 rounded-md border border-slate-200/70 dark:border-slate-850 bg-white dark:bg-slate-900/35 hover:bg-slate-50/50 dark:hover:bg-slate-900 hover:border-slate-350 dark:hover:border-slate-750 transition-all text-left group cursor-pointer"
-                          >
-                            <div className="flex items-center gap-3">
-                              <span className="text-sm font-medium text-slate-850 dark:text-slate-200 group-hover:text-slate-950 dark:group-hover:text-white transition-colors">
-                                {item.title}
-                              </span>
-                              {item.status === 'AT_RISK' && (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded border border-amber-250/20 bg-amber-50/40 text-amber-600 dark:bg-amber-950/20 dark:text-amber-300">
-                                  at risk
+                  {/* Overload Banner */}
+                  <OverloadBanner />
+
+                  {/* 4-Category List Layout (Memory Bank) */}
+                  <div className="space-y-10 flex-1 max-w-5xl">
+                    {[
+                      {
+                        title: '🔥 URGENT',
+                        items: commitments.filter(
+                          c => (c.status === 'ACTIVE' || c.status === 'AT_RISK' || c.status === 'DISCOVERED') &&
+                          (c.priority === 'CRITICAL' || c.priority === 'HIGH' || c.status === 'AT_RISK')
+                        ),
+                      },
+                      {
+                        title: '📚 LEARNING',
+                        items: commitments.filter(
+                          c => (c.status === 'ACTIVE' || c.status === 'AT_RISK' || c.status === 'DISCOVERED') &&
+                          !(c.priority === 'CRITICAL' || c.priority === 'HIGH' || c.status === 'AT_RISK') &&
+                          c.category === 'ACADEMIC'
+                        ),
+                      },
+                      {
+                        title: '💻 PROJECTS',
+                        items: commitments.filter(
+                          c => (c.status === 'ACTIVE' || c.status === 'AT_RISK' || c.status === 'DISCOVERED') &&
+                          !(c.priority === 'CRITICAL' || c.priority === 'HIGH' || c.status === 'AT_RISK') &&
+                          c.category === 'CAREER'
+                        ),
+                      },
+                      {
+                        title: '📬 PERSONAL',
+                        items: commitments.filter(
+                          c => (c.status === 'ACTIVE' || c.status === 'AT_RISK' || c.status === 'DISCOVERED') &&
+                          !(c.priority === 'CRITICAL' || c.priority === 'HIGH' || c.status === 'AT_RISK') &&
+                          (c.category === 'PERSONAL' || c.category === 'FINANCE')
+                        ),
+                      },
+                    ].map((category) => (
+                      <div key={category.title} className="space-y-4">
+                        <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                          {category.title}
+                          <span className="text-[10px] font-normal lowercase text-slate-400">
+                            ({category.items.length})
+                          </span>
+                        </h3>
+                        
+                        {category.items.length > 0 ? (
+                          <div className="grid grid-cols-1 gap-2.5">
+                            {category.items.map((item) => (
+                              <button
+                                key={item.id}
+                                onClick={() => setSelectedContextId(item.id)}
+                                className="w-full flex items-center justify-between py-3.5 px-5 rounded-md border border-slate-200/70 dark:border-slate-850 bg-white dark:bg-slate-900/35 hover:bg-slate-50/50 dark:hover:bg-slate-900 hover:border-slate-350 dark:hover:border-slate-750 transition-all text-left group cursor-pointer"
+                              >
+                                <div className="flex items-center gap-3">
+                                  <span className="text-sm font-medium text-slate-850 dark:text-slate-200 group-hover:text-slate-950 dark:group-hover:text-white transition-colors">
+                                    {item.title}
+                                  </span>
+                                  {item.status === 'AT_RISK' && (
+                                    <span className="text-[9px] px-1.5 py-0.5 rounded border border-amber-250/20 bg-amber-50/40 text-amber-600 dark:bg-amber-950/20 dark:text-amber-300">
+                                      at risk
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-xs text-slate-400 dark:text-slate-550 group-hover:text-slate-600 dark:group-hover:text-slate-450 font-light flex items-center gap-2 transition-colors">
+                                  {item.deadline ? new Date(item.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'No deadline'}
+                                  <ChevronRight className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
                                 </span>
-                              )}
-                            </div>
-                            <span className="text-xs text-slate-400 dark:text-slate-550 group-hover:text-slate-600 dark:group-hover:text-slate-450 font-light flex items-center gap-2 transition-colors">
-                              {item.deadline ? new Date(item.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'No deadline'}
-                              <ChevronRight className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                            </span>
-                          </button>
-                        ))}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-slate-400 dark:text-slate-600 italic pl-1 font-light">No active items</p>
+                        )}
                       </div>
-                    ) : (
-                      <p className="text-xs text-slate-400 dark:text-slate-600 italic pl-1 font-light">No active items</p>
-                    )}
+                    ))}
                   </div>
-                ))}
+                </div>
+
+                {/* Right Column (40% width, sticky top) */}
+                <div className="lg:col-span-2">
+                  <div className="lg:sticky lg:top-4 space-y-4">
+                    {/* AI Roadmap Section */}
+                    <div className="max-w-5xl">
+                      <div className="flex items-center gap-2.5 mb-5">
+                        <button
+                          onClick={() => setRoadmapCollapsed(!roadmapCollapsed)}
+                          className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors"
+                        >
+                          {roadmapCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </button>
+                        <h2 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                          <Map className="h-3.5 w-3.5" />
+                          AI ROADMAP
+                        </h2>
+                        <button
+                          onClick={regenerateRoadmap}
+                          disabled={roadmapGenerating}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-350 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 rounded transition-all cursor-pointer"
+                        >
+                          {roadmapGenerating ? (
+                            <RefreshCw className="h-2.5 w-2.5 animate-spin" />
+                          ) : (
+                            <span>↻</span>
+                          )}
+                          {roadmapGenerating ? 'Generating...' : (roadmapExists ? 'Regenerate' : 'Generate')}
+                        </button>
+                      </div>
+
+                      {!roadmapCollapsed && (
+                        <>
+                          {roadmapLoading ? (
+                            <div className="p-6 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/10">
+                              <div className="text-center">
+                                <div className="inline-block h-8 w-8 animate-spin rounded-full border-2 border-solid border-slate-300 dark:border-slate-800 border-r-transparent"></div>
+                                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Loading roadmap...</p>
+                              </div>
+                            </div>
+                          ) : !roadmapExists || !roadmap ? (
+                            <div className="p-6 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/10">
+                              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">No Roadmap Generated Yet</h3>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-4">
+                                Generate your AI roadmap to get a personalized priority list and 7-day plan based on your commitments and contexts.
+                              </p>
+                              <button
+                                onClick={regenerateRoadmap}
+                                disabled={roadmapGenerating}
+                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg text-xs font-medium transition-colors inline-flex items-center gap-1.5"
+                              >
+                                {roadmapGenerating ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}
+                                {roadmapGenerating ? 'Generating...' : 'Generate Roadmap'}
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="space-y-6">
+                              {/* General Advice */}
+                              {roadmap.generalAdvice && (
+                                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
+                                  <p className="text-sm text-blue-900 dark:text-blue-100">{roadmap.generalAdvice}</p>
+                                </div>
+                              )}
+
+                              <div className="grid grid-cols-1 gap-6">
+                                {/* SECTION A - Priority List */}
+                                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
+                                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-4">YOUR PRIORITY LIST</h3>
+                                  <div className="space-y-3">
+                                    {roadmap.priorityList
+                                      .sort((a, b) => {
+                                        const urgencyOrder = { today: 0, 'this-week': 1, later: 2 }
+                                        return urgencyOrder[a.urgency] - urgencyOrder[b.urgency]
+                                      })
+                                      .slice(0, 5)
+                                      .map((item) => (
+                                        <div key={item.id} className={`p-3 rounded-lg border border-slate-200 dark:border-slate-700 ${getUrgencyColor(item.urgency)}`}>
+                                          <div className="flex items-start justify-between mb-1.5">
+                                            <h4 className="text-sm font-medium text-slate-900 dark:text-white flex-1">{item.title}</h4>
+                                            <div className="flex items-center gap-1.5">
+                                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${getUrgencyBadge(item.urgency)}`}>
+                                                {item.urgency.replace('-', ' ').toUpperCase()}
+                                              </span>
+                                              <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 rounded text-[10px] font-medium text-slate-700 dark:text-slate-300">
+                                                {item.type}
+                                              </span>
+                                            </div>
+                                          </div>
+                                          <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">{item.action}</p>
+                                          <div className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-500">
+                                            <Clock className="h-2.5 w-2.5" />
+                                            <span>~{item.estimatedTime} min</span>
+                                          </div>
+                                        </div>
+                                      ))}
+                                  </div>
+                                  {roadmap.priorityList.length > 5 && (
+                                    <button className="mt-3 text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300 transition-colors">
+                                      View all {roadmap.priorityList.length} tasks →
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* SECTION B - 7-Day Roadmap (Horizontal Scroll) */}
+                                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
+                                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-4">7-DAY ROADMAP</h3>
+                                  <div className="flex gap-3 overflow-x-auto pb-2">
+                                    {roadmap.roadmap.map((day, index) => (
+                                      <div key={index} className="flex-shrink-0 w-44 border border-slate-200 dark:border-slate-700 rounded-lg p-3 bg-slate-50 dark:bg-slate-800">
+                                        <h4 className="text-xs font-semibold text-slate-900 dark:text-white mb-2">{day.day}</h4>
+                                        <div className="space-y-2">
+                                          {day.tasks.slice(0, 3).map((task, taskIndex) => (
+                                            <div key={taskIndex} className="space-y-0.5">
+                                              <p className="text-xs font-medium text-slate-800 dark:text-slate-200 truncate">{task.title}</p>
+                                              <div className="flex items-center gap-1.5">
+                                                <span className="text-[10px] text-slate-500 dark:text-slate-400">{task.duration} min</span>
+                                                <span className="text-[10px] px-1.5 py-0.5 bg-slate-200 dark:bg-slate-700 rounded text-slate-600 dark:text-slate-300">{task.type}</span>
+                                              </div>
+                                            </div>
+                                          ))}
+                                          {day.tasks.length > 3 && (
+                                            <p className="text-[10px] text-slate-500 dark:text-slate-400">+{day.tasks.length - 3} more</p>
+                                          )}
+                                          {day.tasks.length === 0 && (
+                                            <p className="text-[10px] text-slate-500 dark:text-slate-400 italic">No tasks</p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Last Generated */}
+                              <div className="flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500">
+                                <span>Last generated: {roadmapGeneratedAt ? formatRelativeTime(roadmapGeneratedAt) : 'N/A'}</span>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             </>
           )}

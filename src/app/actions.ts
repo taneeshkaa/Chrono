@@ -1,6 +1,6 @@
 'use server'
 
-import { signIn, signOut } from '@/auth'
+import { signIn, signOut, auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { hashPassword } from '@/lib/password'
 
@@ -66,4 +66,18 @@ export async function handleEmailSignUp(formData: FormData) {
     password,
     redirectTo: '/dashboard',
   })
+}
+
+export async function saveUserSettings(timezone: string) {
+  const session = await auth()
+  if (!session?.user?.id) {
+    throw new Error('Unauthorized')
+  }
+
+  await prisma.user.update({
+    where: { id: session.user.id },
+    data: { timezone },
+  })
+
+  return { success: true }
 }
