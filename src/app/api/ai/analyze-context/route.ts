@@ -3,6 +3,8 @@ import { auth } from '@/auth'
 import { runAnalysis } from '@/lib/analyze-context'
 import { verifyJwt } from '@/lib/jwt'
 
+export const dynamic = 'force-dynamic'
+
 // POST /api/ai/analyze-context
 // Fetches unprocessed conversations, sends to Groq, upserts ContextMemory
 export async function POST(request: Request) {

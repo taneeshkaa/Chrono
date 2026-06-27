@@ -2,6 +2,8 @@ import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { NextResponse } from 'next/server'
 
+export const dynamic = 'force-dynamic'
+
 const GROQ_MODEL = 'llama-3.3-70b-versatile'
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions'
 
